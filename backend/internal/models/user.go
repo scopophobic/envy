@@ -32,13 +32,13 @@ type User struct {
 	Name      string    `gorm:"type:varchar(255);not null" json:"name"`
 	
 	// OAuth fields
-	OAuthProvider string `gorm:"type:varchar(50);not null" json:"oauth_provider"` // google, github
-	OAuthID       string `gorm:"type:varchar(255);not null" json:"oauth_id"`
+	OAuthProvider string `gorm:"column:oauth_provider;type:varchar(50);not null" json:"oauth_provider"` // google, github
+	OAuthID       string `gorm:"column:oauth_id;type:varchar(255);not null" json:"oauth_id"`
 	
 	// Subscription fields
-	SubscriptionTier      SubscriptionTier   `gorm:"type:varchar(20);not null;default:'free'" json:"subscription_tier"`
-	SubscriptionStatus    SubscriptionStatus `gorm:"type:varchar(20);not null;default:'active'" json:"subscription_status"`
-	SubscriptionExpiresAt *time.Time         `json:"subscription_expires_at,omitempty"`
+	SubscriptionTier      string     `gorm:"type:varchar(20);not null;default:'free'" json:"subscription_tier"`
+	SubscriptionStatus    string     `gorm:"type:varchar(20);not null;default:'active'" json:"subscription_status"`
+	SubscriptionExpiresAt *time.Time `gorm:"type:timestamptz" json:"subscription_expires_at,omitempty"`
 	
 	// Timestamps
 	CreatedAt time.Time      `json:"created_at"`
