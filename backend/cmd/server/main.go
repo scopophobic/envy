@@ -64,6 +64,9 @@ func main() {
 	tierService := services.NewTierService()
 	authService := services.NewAuthService(cfg, jwtManager)
 	orgService := services.NewOrgService(tierService)
+	projectService := services.NewProjectService(tierService)
+	envService := services.NewEnvironmentService()
+	auditService := services.NewAuditService()
 
 	// Initialize KMS service (optional - only if credentials are provided)
 	var kmsService *services.KMSService
@@ -80,6 +83,10 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	orgHandler := handlers.NewOrgHandler(orgService)
+	projectHandler := handlers.NewProjectHandler(projectService)
+	envHandler := handlers.NewEnvironmentHandler(envService, projectService)
+	secretHandler := handlers.NewSecretHandler(services.NewSecretService(kmsService, tierService, auditService))
+	auditHandler := handlers.NewAuditHandler(auditService)
 
 	// Set Gin mode
 	if cfg.IsProduction() {
@@ -140,6 +147,31 @@ func main() {
 			protected.POST("/orgs/:id/members", middleware.RequirePermission(models.PermissionMembersInvite), orgHandler.InviteMember)
 			protected.PATCH("/orgs/:id/members/:memberId", middleware.RequirePermission(models.PermissionMembersManage), orgHandler.UpdateMemberRole)
 			protected.DELETE("/orgs/:id/members/:memberId", middleware.RequirePermission(models.PermissionMembersManage), orgHandler.RemoveMember)
+
+			// Projects
+			protected.GET("/orgs/:orgId/projects", projectHandler.ListOrgProjects)
+			protected.POST("/orgs/:orgId/projects", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.CreateProject)
+			protected.GET("/projects/:id", projectHandler.GetProject)
+			protected.PATCH("/projects/:id", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.UpdateProject)
+			protected.DELETE("/projects/:id", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.DeleteProject)
+
+			// Environments
+			protected.GET("/projects/:projectId/environments", envHandler.ListProjectEnvironments)
+			protected.POST("/projects/:projectId/environments", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.CreateEnvironment)
+			protected.PATCH("/environments/:id", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.UpdateEnvironment)
+			protected.DELETE("/environments/:id", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.DeleteEnvironment)
+
+			// Secrets
+			protected.GET("/environments/:envId/secrets", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ListSecrets)
+			protected.POST("/environments/:envId/secrets", middleware.RequirePermission(models.PermissionSecretsCreate), secretHandler.CreateSecret)
+			protected.PATCH("/secrets/:id", middleware.RequirePermission(models.PermissionSecretsUpdate), secretHandler.UpdateSecret)
+			protected.DELETE("/secrets/:id", middleware.RequirePermission(models.PermissionSecretsDelete), secretHandler.DeleteSecret)
+
+			// Secrets export for CLI
+			protected.GET("/environments/:envId/secrets/export", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ExportEnvironmentSecrets)
+
+			// Audit logs
+			protected.GET("/orgs/:orgId/audit-logs", middleware.RequirePermission(models.PermissionAuditView), auditHandler.ListOrgAuditLogs)
 		}
 	}
 
