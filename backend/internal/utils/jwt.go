@@ -59,16 +59,17 @@ func (m *JWTManager) GenerateAccessToken(userID uuid.UUID, email string, permiss
 	return token.SignedString([]byte(m.secretKey))
 }
 
-// GenerateRefreshToken generates a new refresh token
+// GenerateRefreshToken generates a new refresh token (unique per call via jti)
 func (m *JWTManager) GenerateRefreshToken(userID uuid.UUID) (string, time.Time, error) {
 	expiresAt := time.Now().Add(m.refreshTokenDuration)
-	
+	now := time.Now()
 	claims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        uuid.New().String(), // unique so DB unique constraint on token never collides
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
 		},
 	}
 

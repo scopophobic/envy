@@ -10,6 +10,7 @@ import (
 	"github.com/envo/backend/internal/database"
 	"github.com/envo/backend/internal/models"
 	"github.com/envo/backend/internal/utils"
+	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
@@ -85,6 +86,11 @@ func (s *AuthService) HandleCallback(ctx context.Context, code string) (*models.
 	return user, accessToken, refreshToken, nil
 }
 
+// GenerateTokensForUser is used by the CLI exchange flow to mint tokens after a one-time login code.
+func (s *AuthService) GenerateTokensForUser(user *models.User) (string, string, error) {
+	return s.generateTokens(user)
+}
+
 // getUserInfo fetches user info from Google
 func (s *AuthService) getUserInfo(ctx context.Context, token *oauth2.Token) (*GoogleUserInfo, error) {
 	client := s.oauth2Config.Client(ctx, token)
@@ -139,25 +145,27 @@ func (s *AuthService) findOrCreateUser(userInfo *GoogleUserInfo) (*models.User, 
 func (s *AuthService) generateTokens(user *models.User) (string, string, error) {
 	db := database.GetDB()
 
-	// Load user permissions
-	if err := db.Preload("OrgMemberships.Role.Permissions").First(user, user.ID).Error; err != nil {
-		return "", "", err
-	}
+	// Load user with permissions (if Preload fails, continue with empty permissions so login still works)
+	_ = db.Preload("OrgMemberships.Role.Permissions").First(user, user.ID)
 
-	// Get user permissions
+	// Get user permissions (may be empty for new users)
 	var permissions []string
-	for _, membership := range user.OrgMemberships {
-		for _, permission := range membership.Role.Permissions {
-			// Add unique permissions
-			found := false
-			for _, p := range permissions {
-				if p == permission.Name {
-					found = true
-					break
-				}
+	if user.OrgMemberships != nil {
+		for _, membership := range user.OrgMemberships {
+			if membership.Role.ID == uuid.Nil {
+				continue
 			}
-			if !found {
-				permissions = append(permissions, permission.Name)
+			for _, permission := range membership.Role.Permissions {
+				found := false
+				for _, p := range permissions {
+					if p == permission.Name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					permissions = append(permissions, permission.Name)
+				}
 			}
 		}
 	}

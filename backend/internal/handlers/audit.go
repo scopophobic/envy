@@ -24,7 +24,7 @@ func NewAuditHandler(auditService *services.AuditService) *AuditHandler {
 // ListOrgAuditLogs lists recent audit logs for an organization
 // GET /api/v1/orgs/:orgId/audit-logs
 func (h *AuditHandler) ListOrgAuditLogs(c *gin.Context) {
-	orgID, err := uuid.Parse(c.Param("orgId"))
+	orgID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
 		return

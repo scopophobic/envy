@@ -36,7 +36,7 @@ func userHasAccessToOrg(user *models.User, orgID uuid.UUID) bool {
 // CreateProject creates a new project within an organization
 // POST /api/v1/orgs/:orgId/projects
 func (h *ProjectHandler) CreateProject(c *gin.Context) {
-	orgID, err := uuid.Parse(c.Param("orgId"))
+	orgID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
 		return
@@ -79,7 +79,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 // ListOrgProjects lists projects for an organization
 // GET /api/v1/orgs/:orgId/projects
 func (h *ProjectHandler) ListOrgProjects(c *gin.Context) {
-	orgID, err := uuid.Parse(c.Param("orgId"))
+	orgID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
 		return

@@ -40,7 +40,7 @@ func userHasAccessToEnv(user *models.User, envID uuid.UUID) (uuid.UUID, bool) {
 // CreateSecret creates a new secret
 // POST /api/v1/environments/:envId/secrets
 func (h *SecretHandler) CreateSecret(c *gin.Context) {
-	envID, err := uuid.Parse(c.Param("envId"))
+	envID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid environment ID"})
 		return
@@ -84,7 +84,7 @@ func (h *SecretHandler) CreateSecret(c *gin.Context) {
 // ListSecrets lists secrets (metadata) for an environment
 // GET /api/v1/environments/:envId/secrets
 func (h *SecretHandler) ListSecrets(c *gin.Context) {
-	envID, err := uuid.Parse(c.Param("envId"))
+	envID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid environment ID"})
 		return
@@ -203,7 +203,7 @@ func (h *SecretHandler) DeleteSecret(c *gin.Context) {
 // ExportEnvironmentSecrets exports decrypted secrets for CLI
 // GET /api/v1/environments/:envId/secrets/export
 func (h *SecretHandler) ExportEnvironmentSecrets(c *gin.Context) {
-	envID, err := uuid.Parse(c.Param("envId"))
+	envID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid environment ID"})
 		return

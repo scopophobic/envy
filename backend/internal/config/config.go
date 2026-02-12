@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -64,9 +65,9 @@ func Load() (*Config, error) {
 		JWTAccessTokenExpiry:   getEnv("JWT_ACCESS_TOKEN_EXPIRY", "15m"),
 		JWTRefreshTokenExpiry:  getEnv("JWT_REFRESH_TOKEN_EXPIRY", "720h"),
 
-		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
-		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
-		GoogleRedirectURL:  getEnv("GOOGLE_REDIRECT_URL", ""),
+		GoogleClientID:     strings.TrimSpace(getEnv("GOOGLE_CLIENT_ID", "")),
+		GoogleClientSecret: strings.TrimSpace(getEnv("GOOGLE_CLIENT_SECRET", "")),
+		GoogleRedirectURL:  strings.TrimSpace(getEnv("GOOGLE_REDIRECT_URL", "")),
 
 		AWSRegion:          getEnv("AWS_REGION", "us-east-1"),
 		AWSKMSKeyID:        getEnv("AWS_KMS_KEY_ID", ""),

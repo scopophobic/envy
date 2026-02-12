@@ -48,7 +48,7 @@ func userHasAccessToEnvOrg(user *models.User, envID uuid.UUID) bool {
 // CreateEnvironment creates a new environment for a project
 // POST /api/v1/projects/:projectId/environments
 func (h *EnvironmentHandler) CreateEnvironment(c *gin.Context) {
-	projectID, err := uuid.Parse(c.Param("projectId"))
+	projectID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
@@ -86,7 +86,7 @@ func (h *EnvironmentHandler) CreateEnvironment(c *gin.Context) {
 // ListProjectEnvironments lists environments for a project
 // GET /api/v1/projects/:projectId/environments
 func (h *EnvironmentHandler) ListProjectEnvironments(c *gin.Context) {
-	projectID, err := uuid.Parse(c.Param("projectId"))
+	projectID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return

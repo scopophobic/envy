@@ -16,6 +16,7 @@ func AllModels() []interface{} {
 		&TierLimit{},
 		&AuditLog{},
 		&RefreshToken{},
+		&CLILoginCode{},
 	}
 }
 
