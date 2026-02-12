@@ -63,6 +63,9 @@ func main() {
 
 	tierService := services.NewTierService()
 	authService := services.NewAuthService(cfg, jwtManager)
+	if cfg.GoogleRedirectURL != "" {
+		log.Printf("🔐 Google OAuth redirect_uri (must match Google Console exactly): %s", cfg.GoogleRedirectURL)
+	}
 	orgService := services.NewOrgService(tierService)
 	projectService := services.NewProjectService(tierService)
 	envService := services.NewEnvironmentService()
@@ -124,7 +127,10 @@ func main() {
 		auth := v1.Group("/auth")
 		{
 			auth.GET("/google/login", authHandler.GoogleLogin)
+			auth.GET("/google/redirect", authHandler.GoogleLoginRedirect)
 			auth.GET("/google/callback", authHandler.GoogleCallback)
+			auth.GET("/cli/google/start", authHandler.CLIGoogleStart)
+			auth.POST("/cli/exchange", authHandler.CLIExchange)
 			auth.POST("/refresh", authHandler.RefreshToken)
 			auth.POST("/logout", authHandler.Logout)
 		}
@@ -148,30 +154,30 @@ func main() {
 			protected.PATCH("/orgs/:id/members/:memberId", middleware.RequirePermission(models.PermissionMembersManage), orgHandler.UpdateMemberRole)
 			protected.DELETE("/orgs/:id/members/:memberId", middleware.RequirePermission(models.PermissionMembersManage), orgHandler.RemoveMember)
 
-			// Projects
-			protected.GET("/orgs/:orgId/projects", projectHandler.ListOrgProjects)
-			protected.POST("/orgs/:orgId/projects", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.CreateProject)
+			// Projects (use :id for org to match GET /orgs/:id)
+			protected.GET("/orgs/:id/projects", projectHandler.ListOrgProjects)
+			protected.POST("/orgs/:id/projects", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.CreateProject)
 			protected.GET("/projects/:id", projectHandler.GetProject)
 			protected.PATCH("/projects/:id", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.UpdateProject)
 			protected.DELETE("/projects/:id", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.DeleteProject)
 
-			// Environments
-			protected.GET("/projects/:projectId/environments", envHandler.ListProjectEnvironments)
-			protected.POST("/projects/:projectId/environments", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.CreateEnvironment)
+			// Environments (use :id for project to match GET /projects/:id)
+			protected.GET("/projects/:id/environments", envHandler.ListProjectEnvironments)
+			protected.POST("/projects/:id/environments", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.CreateEnvironment)
 			protected.PATCH("/environments/:id", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.UpdateEnvironment)
 			protected.DELETE("/environments/:id", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.DeleteEnvironment)
 
-			// Secrets
-			protected.GET("/environments/:envId/secrets", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ListSecrets)
-			protected.POST("/environments/:envId/secrets", middleware.RequirePermission(models.PermissionSecretsCreate), secretHandler.CreateSecret)
+			// Secrets (use :id for environment to match PATCH/DELETE /environments/:id)
+			protected.GET("/environments/:id/secrets", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ListSecrets)
+			protected.POST("/environments/:id/secrets", middleware.RequirePermission(models.PermissionSecretsCreate), secretHandler.CreateSecret)
 			protected.PATCH("/secrets/:id", middleware.RequirePermission(models.PermissionSecretsUpdate), secretHandler.UpdateSecret)
 			protected.DELETE("/secrets/:id", middleware.RequirePermission(models.PermissionSecretsDelete), secretHandler.DeleteSecret)
 
 			// Secrets export for CLI
-			protected.GET("/environments/:envId/secrets/export", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ExportEnvironmentSecrets)
+			protected.GET("/environments/:id/secrets/export", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ExportEnvironmentSecrets)
 
 			// Audit logs
-			protected.GET("/orgs/:orgId/audit-logs", middleware.RequirePermission(models.PermissionAuditView), auditHandler.ListOrgAuditLogs)
+			protected.GET("/orgs/:id/audit-logs", middleware.RequirePermission(models.PermissionAuditView), auditHandler.ListOrgAuditLogs)
 		}
 	}
 
