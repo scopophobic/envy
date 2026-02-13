@@ -144,6 +144,11 @@ func (s *KMSService) Decrypt(ctx context.Context, encryptedData string) (string,
 	return string(plaintext), nil
 }
 
+// KeyID returns the KMS key ID.
+func (s *KMSService) KeyID() string {
+	return s.keyID
+}
+
 // TestConnection tests the KMS connection by describing the key
 func (s *KMSService) TestConnection(ctx context.Context) error {
 	_, err := s.client.DescribeKey(ctx, &kms.DescribeKeyInput{

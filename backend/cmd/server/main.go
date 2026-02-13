@@ -71,24 +71,29 @@ func main() {
 	envService := services.NewEnvironmentService()
 	auditService := services.NewAuditService()
 
-	// Initialize KMS service (optional - only if credentials are provided)
-	var kmsService *services.KMSService
+	// Initialize encryption service (KMS for production, local for development)
+	var encryptor services.Encryptor
 	if cfg.AWSKMSKeyID != "" {
-		kmsService, err = services.NewKMSService(cfg)
-		if err != nil {
-			log.Printf("⚠️  Warning: Failed to initialize KMS service: %v", err)
-			log.Println("⚠️  Secret encryption will not be available")
+		kmsService, kmsErr := services.NewKMSService(cfg)
+		if kmsErr != nil {
+			log.Printf("⚠️  Warning: Failed to initialize KMS service: %v", kmsErr)
+			log.Println("⚠️  Falling back to local encryption (dev only, not for production!)")
+			encryptor = services.NewLocalEncryptionService(cfg.JWTSecret)
 		} else {
 			log.Println("✅ KMS service initialized successfully")
+			encryptor = kmsService
 		}
+	} else {
+		log.Println("⚠️  No AWS_KMS_KEY_ID configured, using local encryption (dev only)")
+		encryptor = services.NewLocalEncryptionService(cfg.JWTSecret)
 	}
 
 	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(authService)
+	authHandler := handlers.NewAuthHandler(authService, cfg.FrontendURL)
 	orgHandler := handlers.NewOrgHandler(orgService)
 	projectHandler := handlers.NewProjectHandler(projectService)
 	envHandler := handlers.NewEnvironmentHandler(envService, projectService)
-	secretHandler := handlers.NewSecretHandler(services.NewSecretService(kmsService, tierService, auditService))
+	secretHandler := handlers.NewSecretHandler(services.NewSecretService(encryptor, tierService, auditService))
 	auditHandler := handlers.NewAuditHandler(auditService)
 
 	// Set Gin mode
@@ -109,7 +114,7 @@ func main() {
 			"service": "envo-backend",
 			"version": "0.1.0",
 			"env":     cfg.Env,
-			"kms":     kmsService != nil,
+			"kms":     encryptor != nil,
 		})
 	})
 

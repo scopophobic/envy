@@ -10,17 +10,29 @@ import (
 	"gorm.io/datatypes"
 )
 
+// Encryptor is the interface for encrypting/decrypting secrets.
+// Implemented by both KMSService (production) and LocalEncryptionService (dev).
+type Encryptor interface {
+	Encrypt(ctx context.Context, plaintext string) (string, error)
+	Decrypt(ctx context.Context, encryptedData string) (string, error)
+	KeyID() string
+}
+
+// Ensure both services implement Encryptor
+var _ Encryptor = (*KMSService)(nil)
+var _ Encryptor = (*LocalEncryptionService)(nil)
+
 // SecretService handles secret CRUD and export
 type SecretService struct {
-	kmsService   *KMSService
+	encryptor    Encryptor
 	tierService  *TierService
 	auditService *AuditService
 }
 
 // NewSecretService creates a new secret service
-func NewSecretService(kms *KMSService, tier *TierService, audit *AuditService) *SecretService {
+func NewSecretService(encryptor Encryptor, tier *TierService, audit *AuditService) *SecretService {
 	return &SecretService{
-		kmsService:   kms,
+		encryptor:    encryptor,
 		tierService:  tier,
 		auditService: audit,
 	}
@@ -28,8 +40,8 @@ func NewSecretService(kms *KMSService, tier *TierService, audit *AuditService) *
 
 // CreateSecret creates a new secret in an environment
 func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUID, key, value string, ip string) (*models.SecretResponse, error) {
-	if s.kmsService == nil {
-		return nil, fmt.Errorf("secret encryption is not configured (KMS not initialized)")
+	if s.encryptor == nil {
+		return nil, fmt.Errorf("secret encryption is not configured")
 	}
 
 	db := database.GetDB().WithContext(ctx)
@@ -44,7 +56,7 @@ func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUI
 	}
 
 	// Encrypt value
-	encrypted, err := s.kmsService.Encrypt(ctx, value)
+	encrypted, err := s.encryptor.Encrypt(ctx, value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt secret: %w", err)
 	}
@@ -53,7 +65,7 @@ func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUI
 		EnvironmentID:  envID,
 		Key:            key,
 		EncryptedValue: encrypted,
-		KMSKeyID:       s.kmsService.keyID,
+		KMSKeyID:       s.encryptor.KeyID(),
 		CreatedBy:      userID,
 	}
 
@@ -94,8 +106,8 @@ func (s *SecretService) ListSecrets(ctx context.Context, envID uuid.UUID) ([]mod
 
 // UpdateSecret updates a secret's key and/or value
 func (s *SecretService) UpdateSecret(ctx context.Context, userID, secretID uuid.UUID, newKey *string, newValue *string, ip string) (*models.SecretResponse, error) {
-	if s.kmsService == nil {
-		return nil, fmt.Errorf("secret encryption is not configured (KMS not initialized)")
+	if s.encryptor == nil {
+		return nil, fmt.Errorf("secret encryption is not configured")
 	}
 
 	db := database.GetDB().WithContext(ctx)
@@ -110,7 +122,7 @@ func (s *SecretService) UpdateSecret(ctx context.Context, userID, secretID uuid.
 	}
 
 	if newValue != nil {
-		encrypted, err := s.kmsService.Encrypt(ctx, *newValue)
+		encrypted, err := s.encryptor.Encrypt(ctx, *newValue)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt secret: %w", err)
 		}
@@ -159,8 +171,8 @@ func (s *SecretService) DeleteSecret(ctx context.Context, userID, secretID uuid.
 
 // ExportEnvironmentSecrets returns decrypted secrets for an environment (for CLI)
 func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, envID uuid.UUID, ip string) (map[string]string, uuid.UUID, error) {
-	if s.kmsService == nil {
-		return nil, uuid.Nil, fmt.Errorf("secret encryption is not configured (KMS not initialized)")
+	if s.encryptor == nil {
+		return nil, uuid.Nil, fmt.Errorf("secret encryption is not configured")
 	}
 
 	db := database.GetDB().WithContext(ctx)
@@ -180,7 +192,7 @@ func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, en
 
 	result := make(map[string]string, len(secrets))
 	for _, sec := range secrets {
-		plaintext, err := s.kmsService.Decrypt(ctx, sec.EncryptedValue)
+		plaintext, err := s.encryptor.Decrypt(ctx, sec.EncryptedValue)
 		if err != nil {
 			return nil, uuid.Nil, fmt.Errorf("failed to decrypt secret %s: %w", sec.ID, err)
 		}
@@ -194,4 +206,3 @@ func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, en
 
 	return result, env.Project.Organization.ID, nil
 }
-

@@ -20,12 +20,14 @@ import (
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
 	authService *services.AuthService
+	frontendURL string
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(authService *services.AuthService) *AuthHandler {
+func NewAuthHandler(authService *services.AuthService, frontendURL string) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
+		frontendURL: frontendURL,
 	}
 }
 
@@ -58,6 +60,9 @@ func (h *AuthHandler) GoogleLoginRedirect(c *gin.Context) {
 
 	// Store state in cookie
 	c.SetCookie("oauth_state", state, 600, "/", "", false, true)
+	
+	// Mark this as a web flow (not CLI)
+	c.SetCookie("oauth_flow", "web", 600, "/", "", false, true)
 
 	// Optional: capture intended post-login redirect (frontend or CLI flow)
 	if next := strings.TrimSpace(c.Query("next")); next != "" {
@@ -88,6 +93,9 @@ func (h *AuthHandler) CLIGoogleStart(c *gin.Context) {
 
 	// Store callback in cookie (browser-scoped, survives OAuth redirect)
 	c.SetCookie("cli_callback", callback, 600, "/", "", false, true)
+	
+	// Mark this as a CLI flow (not web)
+	c.SetCookie("oauth_flow", "cli", 600, "/", "", false, true)
 
 	// Generate state and redirect to Google
 	b := make([]byte, 32)
@@ -127,66 +135,65 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
+	// Check flow type from cookie to distinguish CLI vs web
+	flowType, _ := c.Cookie("oauth_flow")
+	c.SetCookie("oauth_flow", "", -1, "/", "", false, true) // Clear flow cookie
+
 	// If this is a CLI login flow, create a short-lived exchange code and redirect to the CLI callback.
-	if cliCallback, err := c.Cookie("cli_callback"); err == nil && strings.TrimSpace(cliCallback) != "" {
-		// Clear cookie
-		c.SetCookie("cli_callback", "", -1, "/", "", false, true)
+	if flowType == "cli" {
+		cliCallback, err := c.Cookie("cli_callback")
+		if err == nil && strings.TrimSpace(cliCallback) != "" {
+			// Clear cookie
+			c.SetCookie("cli_callback", "", -1, "/", "", false, true)
 
-		// Create exchange code
-		exchangeCode := uuid.NewString()
-		expiresAt := time.Now().Add(2 * time.Minute)
-		rec := &models.CLILoginCode{
-			Code:      exchangeCode,
-			UserID:    user.ID,
-			ExpiresAt: expiresAt,
-		}
+			// Create exchange code
+			exchangeCode := uuid.NewString()
+			expiresAt := time.Now().Add(2 * time.Minute)
+			rec := &models.CLILoginCode{
+				Code:      exchangeCode,
+				UserID:    user.ID,
+				ExpiresAt: expiresAt,
+			}
 
-		if err := database.GetDB().Create(rec).Error; err != nil {
-			// fallback to JSON if DB write fails
-			c.JSON(http.StatusOK, gin.H{
-				"access_token":  accessToken,
-				"refresh_token": refreshToken,
-				"token_type":    "Bearer",
-				"expires_in":    900,
-			})
+			if err := database.GetDB().Create(rec).Error; err != nil {
+				// fallback to JSON if DB write fails
+				c.JSON(http.StatusOK, gin.H{
+					"access_token":  accessToken,
+					"refresh_token": refreshToken,
+					"token_type":    "Bearer",
+					"expires_in":    900,
+				})
+				return
+			}
+
+			redir, _ := url.Parse(cliCallback)
+			q := redir.Query()
+			q.Set("code", exchangeCode)
+			redir.RawQuery = q.Encode()
+
+			c.Redirect(http.StatusFound, redir.String())
 			return
 		}
-
-		redir, _ := url.Parse(cliCallback)
-		q := redir.Query()
-		q.Set("code", exchangeCode)
-		redir.RawQuery = q.Encode()
-
-		c.Redirect(http.StatusFound, redir.String())
-		return
 	}
 
-	// If this is a frontend login flow, redirect to frontend callback URL with tokens in hash
+	// Default to web flow: redirect to frontend callback URL with tokens in hash
+	var frontendCallback string
 	if frontendNext, err := c.Cookie("post_login_next"); err == nil && strings.TrimSpace(frontendNext) != "" {
-		// Clear cookie
+		// Use cookie value if set
+		frontendCallback = strings.TrimSpace(frontendNext)
 		c.SetCookie("post_login_next", "", -1, "/", "", false, true)
-
-		// Redirect to frontend with tokens in URL hash (not query param for security)
-		redir, _ := url.Parse(frontendNext)
-		redir.Fragment = fmt.Sprintf("access_token=%s&refresh_token=%s&token_type=Bearer&expires_in=900",
-			url.QueryEscape(accessToken),
-			url.QueryEscape(refreshToken))
-		c.Redirect(http.StatusFound, redir.String())
-		return
+	} else {
+		// Default to FRONTEND_URL/auth/callback
+		frontendCallback = h.frontendURL + "/auth/callback"
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"token_type":    "Bearer",
-		"expires_in":    900, // 15 minutes in seconds
-		"user": gin.H{
-			"id":    user.ID,
-			"email": user.Email,
-			"name":  user.Name,
-			"tier":  user.SubscriptionTier,
-		},
-	})
+	// Redirect to frontend with tokens in URL hash (not query param for security)
+	// Note: HTTP redirects don't preserve fragments, so we construct the full URL manually
+	fragment := fmt.Sprintf("access_token=%s&refresh_token=%s&token_type=Bearer&expires_in=900",
+		url.QueryEscape(accessToken),
+		url.QueryEscape(refreshToken))
+	redirectURL := frontendCallback + "#" + fragment
+	c.Redirect(http.StatusFound, redirectURL)
 }
 
 // CLIExchange exchanges a short-lived CLI login code for tokens.
