@@ -125,6 +125,45 @@ func (c *Client) GoogleLoginURL(ctx context.Context) (string, error) {
 	return out.URL, nil
 }
 
+// CLIBrowserStartURL returns the URL that should be opened in the browser to complete CLI login.
+func (c *Client) CLIBrowserStartURL(callbackURL string) string {
+	q := url.Values{}
+	q.Set("callback", callbackURL)
+	return c.buildURL("/api/v1/auth/cli/google/start", q)
+}
+
+type cliExchangeReq struct {
+	Code string `json:"code"`
+}
+
+type cliExchangeResp struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
+func (c *Client) CLIExchange(ctx context.Context, code string) (*store.Tokens, error) {
+	var out cliExchangeResp
+	_, err := c.do(ctx, http.MethodPost, "/api/v1/auth/cli/exchange", cliExchangeReq{Code: code}, &out, false)
+	if err != nil {
+		return nil, err
+	}
+	if out.AccessToken == "" || out.RefreshToken == "" {
+		return nil, fmt.Errorf("invalid exchange response from backend")
+	}
+	t := &store.Tokens{
+		AccessToken:  out.AccessToken,
+		RefreshToken: out.RefreshToken,
+		TokenType:    out.TokenType,
+		ExpiresAt:    time.Now().Add(time.Duration(out.ExpiresIn) * time.Second),
+	}
+	if t.TokenType == "" {
+		t.TokenType = "Bearer"
+	}
+	return t, nil
+}
+
 type refreshReq struct {
 	RefreshToken string `json:"refresh_token"`
 }
@@ -166,6 +205,26 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (*store.Tokens, error) {
 		c.tokens = t
 	}
 	return c.tokens, nil
+}
+
+// CurrentUser is the /auth/me response
+type CurrentUser struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	Name          string `json:"name"`
+	Tier          string `json:"tier"`
+	OAuthProvider string `json:"oauth_provider"`
+	CreatedAt     string `json:"created_at"`
+}
+
+// GetCurrentUser returns the authenticated user (for whoami)
+func (c *Client) GetCurrentUser(ctx context.Context) (*CurrentUser, error) {
+	if _, err := c.EnsureAccessToken(ctx); err != nil {
+		return nil, err
+	}
+	var out CurrentUser
+	_, err := c.do(ctx, http.MethodGet, "/api/v1/auth/me", nil, &out, true)
+	return &out, err
 }
 
 // -------- Domain models (minimal) --------

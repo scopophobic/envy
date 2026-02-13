@@ -1,12 +1,13 @@
 package commands
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
+	"net"
+	"net/http"
+	"net/url"
+	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/envo/cli/internal/api"
@@ -14,61 +15,76 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Login UX note:
-// Backend currently returns JSON tokens at the Google callback URL.
-// For now, we ask the user to paste that JSON into the CLI.
 func newLoginCmd(deps *rootDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Login via Google OAuth",
+		Short: "Login via browser (Google OAuth)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-			defer cancel()
+			// Start localhost callback listener
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				return fmt.Errorf("failed to open localhost listener: %w", err)
+			}
+			defer ln.Close()
+
+			addr := ln.Addr().String()
+			callbackURL := "http://" + addr + "/callback"
+
+			codeCh := make(chan string, 1)
+			errCh := make(chan error, 1)
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+				q := r.URL.Query()
+				code := q.Get("code")
+				if code == "" {
+					http.Error(w, "missing code", http.StatusBadRequest)
+					return
+				}
+				fmt.Fprintln(w, "Envo CLI login complete. You can close this tab.")
+				codeCh <- code
+			})
+
+			srv := &http.Server{Handler: mux}
+			go func() {
+				if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+					errCh <- err
+				}
+			}()
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_ = srv.Shutdown(ctx)
+			}()
 
 			client := api.NewClient(deps.cfg.APIBaseURL, nil)
-			u, err := client.GoogleLoginURL(ctx)
+			startURL := client.CLIBrowserStartURL(callbackURL)
+
+			fmt.Println("Opening browser for login...")
+			fmt.Println("(Host in URL must match GOOGLE_REDIRECT_URL in backend .env — use --api http://127.0.0.1:8080 if you use 127.0.0.1 there.)")
+			_ = openBrowser(startURL)
+			fmt.Println("If it didn't open automatically, open this URL:")
+			fmt.Println(startURL)
+
+			// Wait for callback code, then exchange
+			ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Minute)
+			defer cancel()
+
+			var code string
+			select {
+			case code = <-codeCh:
+			case err := <-errCh:
+				return err
+			case <-ctx.Done():
+				return fmt.Errorf("login timed out")
+			}
+
+			tokens, err := client.CLIExchange(cmd.Context(), code)
 			if err != nil {
 				return err
 			}
 
-			fmt.Println("Open this URL in your browser to authenticate:")
-			fmt.Println(u)
-			fmt.Println()
-			fmt.Println("After login, your browser will show JSON containing access_token and refresh_token.")
-			fmt.Println("Paste that JSON here, then press Enter:")
-
-			reader := bufio.NewReader(os.Stdin)
-			pasted, err := reader.ReadString('\n')
-			if err != nil && strings.TrimSpace(pasted) == "" {
-				return fmt.Errorf("failed to read pasted JSON: %w", err)
-			}
-			pasted = strings.TrimSpace(pasted)
-
-			var parsed struct {
-				AccessToken  string `json:"access_token"`
-				RefreshToken string `json:"refresh_token"`
-				TokenType    string `json:"token_type"`
-				ExpiresIn    int    `json:"expires_in"`
-			}
-			if err := json.Unmarshal([]byte(pasted), &parsed); err != nil {
-				return fmt.Errorf("invalid JSON; paste the single-line JSON response from the callback page")
-			}
-
-			if parsed.AccessToken == "" || parsed.RefreshToken == "" {
-				return fmt.Errorf("missing tokens in pasted JSON")
-			}
-
-			t := store.Tokens{
-				AccessToken:  parsed.AccessToken,
-				RefreshToken: parsed.RefreshToken,
-				TokenType:    parsed.TokenType,
-				ExpiresAt:    time.Now().Add(time.Duration(parsed.ExpiresIn) * time.Second),
-			}
-			if t.TokenType == "" {
-				t.TokenType = "Bearer"
-			}
-
-			if err := store.SaveTokens(t); err != nil {
+			if err := store.SaveTokens(*tokens); err != nil {
 				return err
 			}
 
@@ -80,3 +96,18 @@ func newLoginCmd(deps *rootDeps) *cobra.Command {
 	return cmd
 }
 
+func openBrowser(u string) error {
+	// validate URL early
+	if _, err := url.Parse(u); err != nil {
+		return err
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start()
+	case "darwin":
+		return exec.Command("open", u).Start()
+	default:
+		return exec.Command("xdg-open", u).Start()
+	}
+}
