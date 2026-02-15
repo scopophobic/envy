@@ -45,6 +45,43 @@ func userHasAccessToEnvOrg(user *models.User, envID uuid.UUID) bool {
 	return userHasAccessToOrg(user, env.Project.OrgID)
 }
 
+// GetEnvironment returns a single environment with project & org info
+// GET /api/v1/environments/:id
+func (h *EnvironmentHandler) GetEnvironment(c *gin.Context) {
+	envID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid environment ID"})
+		return
+	}
+
+	user, err := middleware.GetCurrentUser(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+
+	if !userHasAccessToEnvOrg(user, envID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	db := database.GetDB()
+	var env models.Environment
+	if err := db.Preload("Project.Organization").First(&env, envID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Environment not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":           env.ID,
+		"name":         env.Name,
+		"project_id":   env.ProjectID,
+		"project_name": env.Project.Name,
+		"org_id":       env.Project.Organization.ID,
+		"org_name":     env.Project.Organization.Name,
+	})
+}
+
 // CreateEnvironment creates a new environment for a project
 // POST /api/v1/projects/:projectId/environments
 func (h *EnvironmentHandler) CreateEnvironment(c *gin.Context) {

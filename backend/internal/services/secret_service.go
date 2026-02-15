@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/envo/backend/internal/database"
 	"github.com/envo/backend/internal/models"
@@ -24,17 +26,20 @@ var _ Encryptor = (*LocalEncryptionService)(nil)
 
 // SecretService handles secret CRUD and export
 type SecretService struct {
-	encryptor    Encryptor
-	tierService  *TierService
-	auditService *AuditService
+	encryptor     Encryptor
+	localEncryptor Encryptor // optional; used to decrypt secrets stored with KMSKeyID "local"
+	tierService   *TierService
+	auditService  *AuditService
 }
 
-// NewSecretService creates a new secret service
-func NewSecretService(encryptor Encryptor, tier *TierService, audit *AuditService) *SecretService {
+// NewSecretService creates a new secret service. Pass localEncryptor so secrets
+// stored with local encryption can be decrypted when primary is KMS (or vice versa).
+func NewSecretService(encryptor Encryptor, localEncryptor Encryptor, tier *TierService, audit *AuditService) *SecretService {
 	return &SecretService{
-		encryptor:    encryptor,
-		tierService:  tier,
-		auditService: audit,
+		encryptor:      encryptor,
+		localEncryptor: localEncryptor,
+		tierService:    tier,
+		auditService:   audit,
 	}
 }
 
@@ -169,7 +174,35 @@ func (s *SecretService) DeleteSecret(ctx context.Context, userID, secretID uuid.
 	return nil
 }
 
-// ExportEnvironmentSecrets returns decrypted secrets for an environment (for CLI)
+// decryptorForSecret returns the primary encryptor to use for this secret (by KMSKeyID and value format).
+func (s *SecretService) decryptorForSecret(sec *models.Secret) Encryptor {
+	// Stored value starts with "local:" => was encrypted with local
+	if s.localEncryptor != nil && strings.HasPrefix(sec.EncryptedValue, "local:") {
+		return s.localEncryptor
+	}
+	if sec.KMSKeyID == "local" && s.localEncryptor != nil {
+		return s.localEncryptor
+	}
+	return s.encryptor
+}
+
+// tryDecrypt tries dec with the given encryptor; if it fails and alt is different, tries alt.
+func (s *SecretService) tryDecrypt(ctx context.Context, sec *models.Secret, dec, alt Encryptor) (string, error) {
+	plain, err := dec.Decrypt(ctx, sec.EncryptedValue)
+	if err == nil {
+		return plain, nil
+	}
+	if alt != nil && alt != dec {
+		plain, err2 := alt.Decrypt(ctx, sec.EncryptedValue)
+		if err2 == nil {
+			return plain, nil
+		}
+	}
+	return "", err
+}
+
+// ExportEnvironmentSecrets returns decrypted secrets for an environment (for CLI).
+// Secrets that fail to decrypt are skipped (and logged); decryptor is chosen by KMSKeyID, with fallback to the other if configured.
 func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, envID uuid.UUID, ip string) (map[string]string, uuid.UUID, error) {
 	if s.encryptor == nil {
 		return nil, uuid.Nil, fmt.Errorf("secret encryption is not configured")
@@ -192,11 +225,20 @@ func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, en
 
 	result := make(map[string]string, len(secrets))
 	for _, sec := range secrets {
-		plaintext, err := s.encryptor.Decrypt(ctx, sec.EncryptedValue)
+		dec := s.decryptorForSecret(&sec)
+		alt := s.localEncryptor
+		if dec == s.localEncryptor {
+			alt = s.encryptor
+		}
+		plaintext, err := s.tryDecrypt(ctx, &sec, dec, alt)
 		if err != nil {
-			return nil, uuid.Nil, fmt.Errorf("failed to decrypt secret %s: %w", sec.ID, err)
+			log.Printf("[envo] skip secret %s (%s): decrypt failed: %v", sec.ID, sec.Key, err)
+			continue
 		}
 		result[sec.Key] = plaintext
+	}
+	if len(secrets) > 0 && len(result) == 0 {
+		log.Printf("[envo] export: %d secrets in env but 0 decrypted; check KMS/local config and re-create secrets if needed", len(secrets))
 	}
 
 	// Audit read

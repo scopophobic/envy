@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -91,10 +92,15 @@ func (s *KMSService) Encrypt(ctx context.Context, plaintext string) (string, err
 // Decrypt decrypts ciphertext using envelope encryption
 // Expects input in format: encryptedDataKey:encryptedValue
 func (s *KMSService) Decrypt(ctx context.Context, encryptedData string) (string, error) {
-	// Parse the encrypted data
-	var encryptedDataKey, encryptedValue string
-	if _, err := fmt.Sscanf(encryptedData, "%s:%s", &encryptedDataKey, &encryptedValue); err != nil {
-		return "", fmt.Errorf("invalid encrypted data format: %w", err)
+	// Reject values encrypted by local encryptor (they start with "local:")
+	if strings.HasPrefix(encryptedData, "local:") {
+		return "", fmt.Errorf("value was encrypted with local encryptor, not KMS")
+	}
+
+	// Parse the encrypted data — split on the FIRST colon only
+	encryptedDataKey, encryptedValue, found := strings.Cut(encryptedData, ":")
+	if !found || encryptedDataKey == "" || encryptedValue == "" {
+		return "", fmt.Errorf("invalid encrypted data format: expected 'datakey:ciphertext'")
 	}
 
 	// Decode base64

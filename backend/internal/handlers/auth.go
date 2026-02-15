@@ -20,13 +20,15 @@ import (
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
 	authService *services.AuthService
+	tierService *services.TierService
 	frontendURL string
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(authService *services.AuthService, frontendURL string) *AuthHandler {
+func NewAuthHandler(authService *services.AuthService, tierService *services.TierService, frontendURL string) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
+		tierService: tierService,
 		frontendURL: frontendURL,
 	}
 }
@@ -312,5 +314,67 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		"tier":  user.SubscriptionTier,
 		"oauth_provider": user.OAuthProvider,
 		"created_at": user.CreatedAt,
+	})
+}
+
+// GetTierInfo returns the current user's tier limits and usage
+// GET /api/v1/auth/tier-info
+func (h *AuthHandler) GetTierInfo(c *gin.Context) {
+	user, err := middleware.GetCurrentUser(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+
+	db := database.GetDB()
+	tier := user.SubscriptionTier
+
+	// Get limits
+	maxOrgs, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxOrgs)
+	maxProjects, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxProjects)
+	maxDevs, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxDevs)
+	maxSecrets, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxSecretsPerEnv)
+
+	// Get current usage
+	var ownedOrgs int64
+	db.Model(&models.Organization{}).Where("owner_id = ?", user.ID).Count(&ownedOrgs)
+
+	// Count total projects across user's owned orgs
+	var totalProjects int64
+	db.Model(&models.Project{}).
+		Joins("JOIN organizations ON organizations.id = projects.org_id").
+		Where("organizations.owner_id = ? AND organizations.deleted_at IS NULL", user.ID).
+		Count(&totalProjects)
+
+	// Count total members across user's owned orgs
+	var totalMembers int64
+	db.Model(&models.OrgMember{}).
+		Joins("JOIN organizations ON organizations.id = org_members.org_id").
+		Where("organizations.owner_id = ? AND organizations.deleted_at IS NULL", user.ID).
+		Count(&totalMembers)
+
+	// Count total secrets across all envs in user's owned orgs
+	var totalSecrets int64
+	db.Model(&models.Secret{}).
+		Joins("JOIN environments ON environments.id = secrets.environment_id").
+		Joins("JOIN projects ON projects.id = environments.project_id").
+		Joins("JOIN organizations ON organizations.id = projects.org_id").
+		Where("organizations.owner_id = ? AND organizations.deleted_at IS NULL", user.ID).
+		Count(&totalSecrets)
+
+	c.JSON(http.StatusOK, gin.H{
+		"tier": tier,
+		"limits": gin.H{
+			"max_orgs":            maxOrgs,
+			"max_projects_per_org": maxProjects,
+			"max_devs_per_org":    maxDevs,
+			"max_secrets_per_env": maxSecrets,
+		},
+		"usage": gin.H{
+			"owned_orgs":     ownedOrgs,
+			"total_projects": totalProjects,
+			"total_members":  totalMembers,
+			"total_secrets":  totalSecrets,
+		},
 	})
 }

@@ -41,6 +41,12 @@ type Config struct {
 	// Frontend
 	FrontendURL string
 
+	// Stripe
+	StripeSecretKey      string
+	StripeWebhookSecret  string
+	StripePriceStarter   string
+	StripePriceTeam      string
+
 	// Rate Limiting
 	RateLimitEnabled bool
 }
@@ -75,6 +81,11 @@ func Load() (*Config, error) {
 		AWSSecretAccessKey: getEnv("AWS_SECRET_ACCESS_KEY", ""),
 
 		FrontendURL: getEnv("FRONTEND_URL", "http://localhost:3000"),
+
+		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
+		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		StripePriceStarter:  getEnv("STRIPE_PRICE_STARTER", ""),
+		StripePriceTeam:     getEnv("STRIPE_PRICE_TEAM", ""),
 
 		RateLimitEnabled: getEnvBool("RATE_LIMIT_ENABLED", true),
 	}
