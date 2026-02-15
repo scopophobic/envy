@@ -71,29 +71,46 @@ func main() {
 	envService := services.NewEnvironmentService()
 	auditService := services.NewAuditService()
 
-	// Initialize encryption service (KMS for production, local for development)
+	// Initialize encryption: primary (KMS or local) + always local for decrypting mixed storage
+	localEncryptor := services.NewLocalEncryptionService(cfg.JWTSecret)
 	var encryptor services.Encryptor
 	if cfg.AWSKMSKeyID != "" {
 		kmsService, kmsErr := services.NewKMSService(cfg)
 		if kmsErr != nil {
 			log.Printf("⚠️  Warning: Failed to initialize KMS service: %v", kmsErr)
 			log.Println("⚠️  Falling back to local encryption (dev only, not for production!)")
-			encryptor = services.NewLocalEncryptionService(cfg.JWTSecret)
+			encryptor = localEncryptor
 		} else {
 			log.Println("✅ KMS service initialized successfully")
 			encryptor = kmsService
 		}
 	} else {
 		log.Println("⚠️  No AWS_KMS_KEY_ID configured, using local encryption (dev only)")
-		encryptor = services.NewLocalEncryptionService(cfg.JWTSecret)
+		encryptor = localEncryptor
+	}
+
+	// Initialize billing (optional — works without Stripe keys)
+	var billingHandler *handlers.BillingHandler
+	if cfg.StripeSecretKey != "" {
+		stripeProvider := services.NewStripeProvider(
+			cfg.StripeSecretKey,
+			cfg.StripeWebhookSecret,
+			cfg.StripePriceStarter,
+			cfg.StripePriceTeam,
+		)
+		billingService := services.NewBillingService(stripeProvider, cfg.FrontendURL)
+		billingHandler = handlers.NewBillingHandler(billingService)
+		log.Println("💳 Stripe billing enabled")
+	} else {
+		log.Println("⚠️  No STRIPE_SECRET_KEY configured, billing endpoints disabled")
 	}
 
 	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(authService, cfg.FrontendURL)
+	authHandler := handlers.NewAuthHandler(authService, tierService, cfg.FrontendURL)
 	orgHandler := handlers.NewOrgHandler(orgService)
 	projectHandler := handlers.NewProjectHandler(projectService)
 	envHandler := handlers.NewEnvironmentHandler(envService, projectService)
-	secretHandler := handlers.NewSecretHandler(services.NewSecretService(encryptor, tierService, auditService))
+	secretHandler := handlers.NewSecretHandler(services.NewSecretService(encryptor, localEncryptor, tierService, auditService))
 	auditHandler := handlers.NewAuditHandler(auditService)
 
 	// Set Gin mode
@@ -146,6 +163,7 @@ func main() {
 		{
 			// Current user
 			protected.GET("/auth/me", authHandler.GetCurrentUser)
+			protected.GET("/auth/tier-info", authHandler.GetTierInfo)
 
 			// Organizations
 			protected.GET("/orgs", orgHandler.ListOrganizations)
@@ -169,6 +187,7 @@ func main() {
 			// Environments (use :id for project to match GET /projects/:id)
 			protected.GET("/projects/:id/environments", envHandler.ListProjectEnvironments)
 			protected.POST("/projects/:id/environments", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.CreateEnvironment)
+			protected.GET("/environments/:id", envHandler.GetEnvironment)
 			protected.PATCH("/environments/:id", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.UpdateEnvironment)
 			protected.DELETE("/environments/:id", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.DeleteEnvironment)
 
@@ -183,6 +202,17 @@ func main() {
 
 			// Audit logs
 			protected.GET("/orgs/:id/audit-logs", middleware.RequirePermission(models.PermissionAuditView), auditHandler.ListOrgAuditLogs)
+
+			// Billing (protected)
+			if billingHandler != nil {
+				protected.POST("/billing/checkout", billingHandler.CreateCheckoutSession)
+				protected.POST("/billing/portal", billingHandler.CreatePortalSession)
+			}
+		}
+
+		// Billing webhook (public — Stripe sends these without our JWT)
+		if billingHandler != nil {
+			v1.POST("/billing/webhook", billingHandler.HandleWebhook)
 		}
 	}
 
