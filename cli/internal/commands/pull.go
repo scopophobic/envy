@@ -62,8 +62,13 @@ func newPullCmd(deps *rootDeps) *cobra.Command {
 			}
 
 			if outDir == "" {
-				cwd, _ := os.Getwd()
-				outDir = cwd
+				// Prefer ENVO_CALLER_DIR (set by wrapper scripts that cd into cli/)
+				if callerDir := os.Getenv("ENVO_CALLER_DIR"); callerDir != "" {
+					outDir = callerDir
+				} else {
+					cwd, _ := os.Getwd()
+					outDir = cwd
+				}
 			}
 			outDir, _ = filepath.Abs(outDir)
 
