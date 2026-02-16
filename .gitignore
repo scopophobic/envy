@@ -1,3 +1,5 @@
 trash/*
-
 hello
+
+# CLI release build output
+cli/dist/

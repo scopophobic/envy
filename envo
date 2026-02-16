@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Run Envo CLI without building. From repo root: ./envo login
+export ENVO_CALLER_DIR="$PWD"
+cd "$(dirname "$0")/cli"
+go run ./cmd/envo "$@"
