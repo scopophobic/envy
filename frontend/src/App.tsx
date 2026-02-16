@@ -9,6 +9,7 @@ import { MembersPage } from './pages/MembersPage'
 import { OrgDetailPage } from './pages/OrgDetailPage'
 import { OrgsPage } from './pages/OrgsPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
+import { SettingsPage } from './pages/SettingsPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const t = getAccessToken()
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/orgs/:id/members" element={<MembersPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/environments/:id" element={<EnvironmentDetailPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

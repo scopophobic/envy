@@ -1,4 +1,4 @@
-import { clearTokens, getAccessToken, getRefreshToken, setTokens } from './auth'
+import { clearTokens, getAccessToken, getRefreshToken, setTokens, decodeJwtClaims } from './auth'
 
 const DEFAULT_BASE = 'http://localhost:8080'
 
@@ -6,9 +6,49 @@ export function apiBaseUrl() {
   return import.meta.env.VITE_API_URL || DEFAULT_BASE
 }
 
+// Proactively check if token expires within 60 seconds
+function isTokenExpiringSoon(): boolean {
+  const token = getAccessToken()
+  if (!token) return true
+  const claims = decodeJwtClaims(token)
+  if (!claims?.exp) return false
+  return claims.exp * 1000 - Date.now() < 60_000
+}
+
+// Singleton refresh promise to avoid concurrent refresh calls
+let refreshPromise: Promise<string> | null = null
+
+async function ensureFreshToken(): Promise<void> {
+  if (!isTokenExpiringSoon()) return
+  const refresh = getRefreshToken()
+  if (!refresh) return
+
+  if (!refreshPromise) {
+    refreshPromise = doRefresh(refresh).finally(() => { refreshPromise = null })
+  }
+  await refreshPromise
+}
+
+async function doRefresh(refresh: string): Promise<string> {
+  const resp = await fetch(apiBaseUrl() + '/api/v1/auth/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ refresh_token: refresh }),
+  })
+  if (!resp.ok) {
+    // Refresh failed — clear tokens and redirect to login
+    clearTokens()
+    window.location.href = '/login'
+    throw new Error('Session expired — please sign in again')
+  }
+  const data = await resp.json()
+  setTokens(data.access_token, refresh)
+  return data.access_token as string
+}
+
 async function request<T>(
   path: string,
-  init: RequestInit & { auth?: boolean } = {},
+  init: RequestInit & { auth?: boolean; _retried?: boolean } = {},
 ): Promise<T> {
   const url = apiBaseUrl() + path
   const headers = new Headers(init.headers || {})
@@ -19,6 +59,8 @@ async function request<T>(
   }
 
   if (init.auth) {
+    // Proactively refresh if token is about to expire
+    await ensureFreshToken()
     const token = getAccessToken()
     if (token) headers.set('Authorization', `Bearer ${token}`)
   }
@@ -26,7 +68,24 @@ async function request<T>(
   const resp = await fetch(url, { ...init, headers })
   const text = await resp.text()
 
+  // Automatic retry on 401 (token expired between check and request)
+  if (resp.status === 401 && init.auth && !init._retried) {
+    const refresh = getRefreshToken()
+    if (refresh) {
+      try {
+        await doRefresh(refresh)
+        return request<T>(path, { ...init, _retried: true })
+      } catch {
+        // refresh failed, fall through to error
+      }
+    }
+  }
+
   if (!resp.ok) {
+    if (resp.status === 401) {
+      clearTokens()
+      window.location.href = '/login'
+    }
     throw new Error(`${resp.status} ${resp.statusText}: ${text}`)
   }
 
@@ -87,6 +146,32 @@ export type User = {
 
 export async function getCurrentUser(): Promise<User> {
   return request<User>('/api/v1/auth/me', { auth: true })
+}
+
+// ── Tier info ────────────────────────────────────────────────────────
+
+export type TierLimits = {
+  max_orgs: number
+  max_projects_per_org: number
+  max_devs_per_org: number
+  max_secrets_per_env: number
+}
+
+export type TierUsage = {
+  owned_orgs: number
+  total_projects: number
+  total_members: number
+  total_secrets: number
+}
+
+export type TierInfo = {
+  tier: string
+  limits: TierLimits
+  usage: TierUsage
+}
+
+export async function getTierInfo(): Promise<TierInfo> {
+  return request<TierInfo>('/api/v1/auth/tier-info', { auth: true })
 }
 
 // ── Organizations ────────────────────────────────────────────────────
@@ -214,6 +299,19 @@ export async function deleteEnvironment(envId: string): Promise<void> {
   await request(`/api/v1/environments/${envId}`, { method: 'DELETE', auth: true })
 }
 
+export type EnvironmentDetail = {
+  id: string
+  name: string
+  project_id: string
+  project_name: string
+  org_id: string
+  org_name: string
+}
+
+export async function getEnvironment(envId: string): Promise<EnvironmentDetail> {
+  return request<EnvironmentDetail>(`/api/v1/environments/${envId}`, { auth: true })
+}
+
 // ── Secrets ──────────────────────────────────────────────────────────
 
 export type Secret = {
@@ -274,4 +372,27 @@ export type AuditLog = {
 
 export async function listAuditLogs(orgId: string): Promise<AuditLog[]> {
   return request<AuditLog[]>(`/api/v1/orgs/${orgId}/audit-logs`, { auth: true })
+}
+
+// ── Billing ──────────────────────────────────────────────────────────
+
+export type CheckoutResponse = { url: string }
+
+export async function createCheckoutSession(plan: string): Promise<string> {
+  const r = await request<CheckoutResponse>('/api/v1/billing/checkout', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ plan }),
+  })
+  return r.url
+}
+
+export type PortalResponse = { url: string }
+
+export async function createPortalSession(): Promise<string> {
+  const r = await request<PortalResponse>('/api/v1/billing/portal', {
+    method: 'POST',
+    auth: true,
+  })
+  return r.url
 }

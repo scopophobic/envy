@@ -4,12 +4,12 @@ import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import {
   createProject,
-  getCurrentUser,
   getOrg,
+  getTierInfo,
   listOrgProjects,
   type OrgDetail,
   type Project,
-  type User,
+  type TierInfo,
 } from '../lib/api'
 
 export function OrgDetailPage() {
@@ -17,7 +17,7 @@ export function OrgDetailPage() {
   const nav = useNavigate()
   const [org, setOrg] = useState<OrgDetail | null>(null)
   const [projects, setProjects] = useState<Project[] | null>(null)
-  const [user, setUser] = useState<User | null>(null)
+  const [tierInfo, setTierInfo] = useState<TierInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [projectName, setProjectName] = useState('')
@@ -25,15 +25,15 @@ export function OrgDetailPage() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  const tierLimits: Record<string, number> = { free: 1, starter: 5, team: -1 }
-  const maxProjects = user ? (tierLimits[user.tier] ?? 1) : 1
-  const projectLimitReached = maxProjects !== -1 && projects !== null && projects.length >= maxProjects
+  const maxProjects = tierInfo?.limits.max_projects_per_org ?? 1
+  const projectCount = projects?.length ?? 0
+  const projectLimitReached = maxProjects !== -1 && projectCount >= maxProjects
 
   const load = useCallback(() => {
     if (!id) return
     getOrg(id).then(setOrg).catch((e) => setError((e as Error).message))
     listOrgProjects(id).then(setProjects).catch(() => setProjects([]))
-    getCurrentUser().then(setUser).catch(() => {})
+    getTierInfo().then(setTierInfo).catch(() => {})
   }, [id])
 
   useEffect(() => { load() }, [load])
@@ -57,8 +57,15 @@ export function OrgDetailPage() {
     }
   }
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>
-  if (!org) return <p className="text-sm text-slate-500">Loading...</p>
+  if (error) return <p className="text-sm text-red-600 p-6">{error}</p>
+  if (!org) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+        <span className="ml-2 text-sm text-slate-500">Loading...</span>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -74,17 +81,28 @@ export function OrgDetailPage() {
       {/* Projects */}
       <div>
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
             {projects && maxProjects !== -1 && (
-              <span className="text-xs text-slate-400">
-                {projects.length}/{maxProjects}
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${projectLimitReached ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                {projectCount}/{maxProjects}
               </span>
             )}
-            {!projectLimitReached && (
+            {maxProjects === -1 && projects && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                {projectCount}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {!projectLimitReached ? (
               <Button onClick={() => setShowCreate(!showCreate)}>
                 {showCreate ? 'Cancel' : 'New project'}
               </Button>
+            ) : (
+              <span className="rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-700">
+                Project limit reached — upgrade plan
+              </span>
             )}
           </div>
         </div>
@@ -123,17 +141,26 @@ export function OrgDetailPage() {
 
         <div className="mt-3 space-y-2">
           {projects === null ? (
-            <p className="text-sm text-slate-400">Loading...</p>
+            <div className="flex items-center justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+              <span className="ml-2 text-sm text-slate-500">Loading...</span>
+            </div>
           ) : projects.length === 0 ? (
             <Card>
-              <p className="py-4 text-center text-sm text-slate-500">
-                No projects yet. Create one to get started.
-              </p>
+              <div className="py-8 text-center">
+                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-400">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-slate-700">No projects yet</p>
+                <p className="mt-1 text-xs text-slate-500">Create your first project to start adding environments and secrets.</p>
+              </div>
             </Card>
           ) : (
             projects.map((p) => (
               <Link key={p.id} to={`/projects/${p.id}`} className="block">
-                <Card className="transition-colors hover:border-slate-300">
+                <Card className="transition-all hover:border-slate-300 hover:shadow-sm">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-sm font-medium text-slate-900">{p.name}</div>
