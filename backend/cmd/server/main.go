@@ -89,20 +89,21 @@ func main() {
 		encryptor = localEncryptor
 	}
 
-	// Initialize billing (optional — works without Stripe keys)
+	// Initialize billing (optional — works without Razorpay keys)
 	var billingHandler *handlers.BillingHandler
-	if cfg.StripeSecretKey != "" {
-		stripeProvider := services.NewStripeProvider(
-			cfg.StripeSecretKey,
-			cfg.StripeWebhookSecret,
-			cfg.StripePriceStarter,
-			cfg.StripePriceTeam,
+	if cfg.RazorpayKeyID != "" && cfg.RazorpayKeySecret != "" {
+		razorpayProvider := services.NewRazorpayProvider(
+			cfg.RazorpayKeyID,
+			cfg.RazorpayKeySecret,
+			cfg.RazorpayWebhookSecret,
+			cfg.RazorpayPlanStarter,
+			cfg.RazorpayPlanTeam,
 		)
-		billingService := services.NewBillingService(stripeProvider, cfg.FrontendURL)
+		billingService := services.NewBillingService(razorpayProvider, cfg.FrontendURL)
 		billingHandler = handlers.NewBillingHandler(billingService)
-		log.Println("💳 Stripe billing enabled")
+		log.Println("💳 Razorpay billing enabled")
 	} else {
-		log.Println("⚠️  No STRIPE_SECRET_KEY configured, billing endpoints disabled")
+		log.Println("⚠️  No RAZORPAY_KEY_ID configured, billing endpoints disabled")
 	}
 
 	// Initialize handlers

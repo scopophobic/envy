@@ -41,11 +41,12 @@ type Config struct {
 	// Frontend
 	FrontendURL string
 
-	// Stripe
-	StripeSecretKey      string
-	StripeWebhookSecret  string
-	StripePriceStarter   string
-	StripePriceTeam      string
+	// Razorpay
+	RazorpayKeyID        string
+	RazorpayKeySecret    string
+	RazorpayWebhookSecret string
+	RazorpayPlanStarter  string
+	RazorpayPlanTeam     string
 
 	// Rate Limiting
 	RateLimitEnabled bool
@@ -82,10 +83,11 @@ func Load() (*Config, error) {
 
 		FrontendURL: getEnv("FRONTEND_URL", "http://localhost:3000"),
 
-		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
-		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
-		StripePriceStarter:  getEnv("STRIPE_PRICE_STARTER", ""),
-		StripePriceTeam:     getEnv("STRIPE_PRICE_TEAM", ""),
+		RazorpayKeyID:         getEnv("RAZORPAY_KEY_ID", ""),
+		RazorpayKeySecret:     getEnv("RAZORPAY_KEY_SECRET", ""),
+		RazorpayWebhookSecret: getEnv("RAZORPAY_WEBHOOK_SECRET", ""),
+		RazorpayPlanStarter:   getEnv("RAZORPAY_PLAN_STARTER", ""),
+		RazorpayPlanTeam:      getEnv("RAZORPAY_PLAN_TEAM", ""),
 
 		RateLimitEnabled: getEnvBool("RATE_LIMIT_ENABLED", true),
 	}

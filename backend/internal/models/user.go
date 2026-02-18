@@ -39,7 +39,7 @@ type User struct {
 	SubscriptionTier      string     `gorm:"type:varchar(20);not null;default:'free'" json:"subscription_tier"`
 	SubscriptionStatus    string     `gorm:"type:varchar(20);not null;default:'active'" json:"subscription_status"`
 	SubscriptionExpiresAt *time.Time `gorm:"type:timestamptz" json:"subscription_expires_at,omitempty"`
-	StripeCustomerID      string     `gorm:"type:varchar(255);index" json:"-"` // Stripe customer ID for billing
+	PaymentCustomerID     string     `gorm:"column:payment_customer_id;type:varchar(255);index" json:"-"`
 	
 	// Timestamps
 	CreatedAt time.Time      `json:"created_at"`

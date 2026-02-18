@@ -317,7 +317,8 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	})
 }
 
-// GetTierInfo returns the current user's tier limits and usage
+// GetTierInfo returns the current user's tier limits and per-org usage.
+// Hierarchy: org >> project >> team member >> env >> secrets
 // GET /api/v1/auth/tier-info
 func (h *AuthHandler) GetTierInfo(c *gin.Context) {
 	user, err := middleware.GetCurrentUser(c)
@@ -329,52 +330,62 @@ func (h *AuthHandler) GetTierInfo(c *gin.Context) {
 	db := database.GetDB()
 	tier := user.SubscriptionTier
 
-	// Get limits
 	maxOrgs, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxOrgs)
 	maxProjects, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxProjects)
 	maxDevs, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxDevs)
 	maxSecrets, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxSecretsPerEnv)
 
-	// Get current usage
+	// Global: owned orgs
 	var ownedOrgs int64
 	db.Model(&models.Organization{}).Where("owner_id = ?", user.ID).Count(&ownedOrgs)
 
-	// Count total projects across user's owned orgs
-	var totalProjects int64
-	db.Model(&models.Project{}).
-		Joins("JOIN organizations ON organizations.id = projects.org_id").
-		Where("organizations.owner_id = ? AND organizations.deleted_at IS NULL", user.ID).
-		Count(&totalProjects)
+	// Per-org usage breakdown
+	var orgs []models.Organization
+	db.Where("owner_id = ?", user.ID).Find(&orgs)
 
-	// Count total members across user's owned orgs
-	var totalMembers int64
-	db.Model(&models.OrgMember{}).
-		Joins("JOIN organizations ON organizations.id = org_members.org_id").
-		Where("organizations.owner_id = ? AND organizations.deleted_at IS NULL", user.ID).
-		Count(&totalMembers)
+	type orgUsage struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Projects int64  `json:"projects"`
+		Members  int64  `json:"members"`
+		Secrets  int64  `json:"secrets"`
+	}
 
-	// Count total secrets across all envs in user's owned orgs
-	var totalSecrets int64
-	db.Model(&models.Secret{}).
-		Joins("JOIN environments ON environments.id = secrets.environment_id").
-		Joins("JOIN projects ON projects.id = environments.project_id").
-		Joins("JOIN organizations ON organizations.id = projects.org_id").
-		Where("organizations.owner_id = ? AND organizations.deleted_at IS NULL", user.ID).
-		Count(&totalSecrets)
+	perOrg := make([]orgUsage, 0, len(orgs))
+	for _, org := range orgs {
+		var projects int64
+		db.Model(&models.Project{}).Where("org_id = ?", org.ID).Count(&projects)
+
+		var members int64
+		db.Model(&models.OrgMember{}).Where("org_id = ?", org.ID).Count(&members)
+
+		var secrets int64
+		db.Model(&models.Secret{}).
+			Joins("JOIN environments ON environments.id = secrets.environment_id").
+			Joins("JOIN projects ON projects.id = environments.project_id").
+			Where("projects.org_id = ?", org.ID).
+			Count(&secrets)
+
+		perOrg = append(perOrg, orgUsage{
+			ID:       org.ID.String(),
+			Name:     org.Name,
+			Projects: projects,
+			Members:  members,
+			Secrets:  secrets,
+		})
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"tier": tier,
 		"limits": gin.H{
-			"max_orgs":            maxOrgs,
+			"max_orgs":             maxOrgs,
 			"max_projects_per_org": maxProjects,
-			"max_devs_per_org":    maxDevs,
-			"max_secrets_per_env": maxSecrets,
+			"max_devs_per_org":     maxDevs,
+			"max_secrets_per_env":  maxSecrets,
 		},
 		"usage": gin.H{
-			"owned_orgs":     ownedOrgs,
-			"total_projects": totalProjects,
-			"total_members":  totalMembers,
-			"total_secrets":  totalSecrets,
+			"owned_orgs": ownedOrgs,
+			"orgs":       perOrg,
 		},
 	})
 }
