@@ -1,0 +1,6 @@
+.git
+*.md
+backend/.env
+cli/
+.env.production
+.env.production.example

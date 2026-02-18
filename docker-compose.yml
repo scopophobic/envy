@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-envo}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required}
+      POSTGRES_DB: ${DB_NAME:-envo_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-envo}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      ENV: production
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-envo}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required}
+      DB_NAME: ${DB_NAME:-envo_db}
+      DB_SSLMODE: disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_ACCESS_TOKEN_EXPIRY: ${JWT_ACCESS_TOKEN_EXPIRY:-15m}
+      JWT_REFRESH_TOKEN_EXPIRY: ${JWT_REFRESH_TOKEN_EXPIRY:-720h}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URL: ${GOOGLE_REDIRECT_URL}
+      AWS_REGION: ${AWS_REGION:-eu-north-1}
+      AWS_KMS_KEY_ID: ${AWS_KMS_KEY_ID:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      RAZORPAY_PLAN_STARTER: ${RAZORPAY_PLAN_STARTER:-}
+      RAZORPAY_PLAN_TEAM: ${RAZORPAY_PLAN_TEAM:-}
+      RATE_LIMIT_ENABLED: "true"
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args:
+        VITE_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${HOST_PORT:-80}:80"
+
+volumes:
+  pgdata:
