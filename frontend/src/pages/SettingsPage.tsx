@@ -66,7 +66,7 @@ function UsageBar({ current, max, label }: { current: number; max: number; label
       <div className="flex items-center justify-between text-xs">
         <span className="text-slate-600">{label}</span>
         <span className={atLimit ? 'font-semibold text-red-600' : 'text-slate-500'}>
-          {current} / {isUnlimited ? 'unlimited' : max}
+          {current} / {isUnlimited ? '∞' : max}
         </span>
       </div>
       <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100">
@@ -231,33 +231,55 @@ export function SettingsPage() {
             })}
           </div>
 
-          {/* Usage */}
+          {/* Per-org usage */}
           {tierInfo && (
-            <Card>
-              <h3 className="text-sm font-semibold text-slate-900 mb-4">Current usage</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">Usage by organization</h3>
                 <UsageBar
                   current={tierInfo.usage.owned_orgs}
                   max={tierInfo.limits.max_orgs}
-                  label="Organizations"
+                  label=""
                 />
-                <UsageBar
-                  current={tierInfo.usage.total_projects}
-                  max={tierInfo.limits.max_projects_per_org}
-                  label="Projects"
-                />
-                <UsageBar
-                  current={tierInfo.usage.total_members}
-                  max={tierInfo.limits.max_devs_per_org}
-                  label="Team members"
-                />
-                <UsageBar
-                  current={tierInfo.usage.total_secrets}
-                  max={tierInfo.limits.max_secrets_per_env}
-                  label="Secrets"
-                />
+                <span className="text-xs text-slate-500">
+                  {tierInfo.usage.owned_orgs} / {tierInfo.limits.max_orgs === -1 ? '∞' : tierInfo.limits.max_orgs} orgs
+                </span>
               </div>
-            </Card>
+
+              {tierInfo.usage.orgs && tierInfo.usage.orgs.length > 0 ? (
+                tierInfo.usage.orgs.map((org) => (
+                  <Card key={org.id}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-100 text-xs font-semibold text-violet-600">
+                        {org.name[0]?.toUpperCase()}
+                      </div>
+                      <h4 className="text-sm font-semibold text-slate-900">{org.name}</h4>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <UsageBar
+                        current={org.projects}
+                        max={tierInfo.limits.max_projects_per_org}
+                        label="Projects"
+                      />
+                      <UsageBar
+                        current={org.members}
+                        max={tierInfo.limits.max_devs_per_org}
+                        label="Team members"
+                      />
+                      <UsageBar
+                        current={org.secrets}
+                        max={tierInfo.limits.max_secrets_per_env}
+                        label="Secrets"
+                      />
+                    </div>
+                  </Card>
+                ))
+              ) : (
+                <Card>
+                  <p className="text-sm text-slate-500 text-center py-4">No organizations yet. Create one to get started.</p>
+                </Card>
+              )}
+            </div>
           )}
         </div>
       )}

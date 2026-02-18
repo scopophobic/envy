@@ -157,11 +157,17 @@ export type TierLimits = {
   max_secrets_per_env: number
 }
 
+export type OrgUsage = {
+  id: string
+  name: string
+  projects: number
+  members: number
+  secrets: number
+}
+
 export type TierUsage = {
   owned_orgs: number
-  total_projects: number
-  total_members: number
-  total_secrets: number
+  orgs: OrgUsage[]
 }
 
 export type TierInfo = {
