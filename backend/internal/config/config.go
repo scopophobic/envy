@@ -106,7 +106,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("JWT_SECRET is required")
 	}
 
-	if c.DBPassword == "" && c.Env == "production" {
+	if c.DBPassword == "" && c.Env == "production" && strings.TrimSpace(os.Getenv("DB_URL")) == "" {
 		return fmt.Errorf("DB_PASSWORD is required in production")
 	}
 
@@ -125,6 +125,30 @@ func (c *Config) Validate() error {
 
 // GetDSN returns the database connection string
 func (c *Config) GetDSN() string {
+	// Prefer DB_URL when provided (e.g. Supabase).
+	// Note: this project uses GORM's postgres driver which expects a DSN string.
+	if dbURL := strings.TrimSpace(os.Getenv("DB_URL")); dbURL != "" {
+		dsn := dbURL
+
+		// Supabase commonly requires sslmode=require. If sslmode isn't already
+		// present in DB_URL, append it from DB_SSLMODE (or default to require).
+		sslMode := strings.TrimSpace(c.DBSSLMode)
+		if sslMode == "" {
+			sslMode = "require"
+		}
+
+		// Only append when DB_URL doesn't already contain sslmode=...
+		if !strings.Contains(strings.ToLower(dsn), "sslmode=") {
+			if strings.Contains(dsn, "?") {
+				dsn = dsn + "&sslmode=" + sslMode
+			} else {
+				dsn = dsn + "?sslmode=" + sslMode
+			}
+		}
+
+		return dsn
+	}
+
 	return fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName, c.DBSSLMode,
