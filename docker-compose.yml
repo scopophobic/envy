@@ -32,7 +32,8 @@ services:
       DB_USER: ${DB_USER:-envo}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required}
       DB_NAME: ${DB_NAME:-envo_db}
-      DB_SSLMODE: disable
+      DB_URL: ${DB_URL}
+      DB_SSLMODE: ${DB_SSLMODE:-require}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_ACCESS_TOKEN_EXPIRY: ${JWT_ACCESS_TOKEN_EXPIRY:-15m}
       JWT_REFRESH_TOKEN_EXPIRY: ${JWT_REFRESH_TOKEN_EXPIRY:-720h}

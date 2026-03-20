@@ -3,3 +3,6 @@ hello
 
 # CLI release build output
 cli/dist/
+
+.env.production
+.env.production.example
