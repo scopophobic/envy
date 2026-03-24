@@ -3,10 +3,11 @@ version: "3.9"
 services:
   db:
     image: postgres:16-alpine
+    profiles: ["localdb"]
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-envo}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-envo_local_dev_password}
       POSTGRES_DB: ${DB_NAME:-envo_db}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -21,16 +22,13 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       PORT: "8080"
       ENV: production
-      DB_HOST: db
-      DB_PORT: "5432"
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${DB_USER:-envo}
-      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required}
+      DB_PASSWORD: ${DB_PASSWORD:-}
       DB_NAME: ${DB_NAME:-envo_db}
       DB_URL: ${DB_URL}
       DB_SSLMODE: ${DB_SSLMODE:-require}
