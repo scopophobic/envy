@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─── Envo Deploy Script (AWS EC2) ───
+# ─── Envo Deploy Script (AWS EC2 — backend only) ───
+#
+# Frontend is deployed separately (e.g. Vercel).
+# This script builds and starts only the Go backend container.
 #
 # Prerequisites on the EC2 instance:
-#   sudo yum install -y docker git        # Amazon Linux 2023
+#   sudo apt install -y docker.io docker-compose-plugin   # Ubuntu
 #   sudo systemctl enable --now docker
-#   sudo usermod -aG docker $USER         # then re-login
-#   sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-#   sudo chmod +x /usr/local/bin/docker-compose
+#   sudo usermod -aG docker $USER   # then re-login
 #
 # Usage:
 #   1. Clone repo on EC2
 #   2. cp .env.production.example .env.production
 #   3. Edit .env.production with real values
-#   4. ./deploy.sh
+#   4. chmod +x deploy.sh && ./deploy.sh
 #
 
 ENV_FILE=".env.production"
@@ -25,14 +26,14 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-echo "==> Building containers..."
-docker-compose --env-file "$ENV_FILE" build
+echo "==> Building backend..."
+docker-compose --env-file "$ENV_FILE" build backend
 
-echo "==> Starting services..."
-docker-compose --env-file "$ENV_FILE" up -d
+echo "==> Starting backend..."
+docker-compose --env-file "$ENV_FILE" up -d backend
 
-echo "==> Waiting for database to be ready..."
-sleep 5
+echo "==> Waiting for backend to start..."
+sleep 3
 
 echo "==> Running migrations..."
 docker-compose --env-file "$ENV_FILE" exec backend envo-server -migrate
@@ -40,11 +41,13 @@ docker-compose --env-file "$ENV_FILE" exec backend envo-server -migrate
 echo "==> Seeding tier data..."
 docker-compose --env-file "$ENV_FILE" exec backend envo-server -seed
 
+HOST_PORT=$(grep -E '^HOST_PORT=' "$ENV_FILE" | cut -d= -f2 || echo "8080")
+
 echo ""
-echo "==> Envo is running!"
-echo "    Frontend: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo 'your-server-ip')"
-echo "    Health:   curl http://localhost/health"
+echo "==> Envo backend is running on port ${HOST_PORT}!"
+echo "    Health: curl http://localhost:${HOST_PORT}/health"
 echo ""
 echo "Next steps:"
-echo "  - Point your subdomain DNS to this server's IP"
-echo "  - Set up HTTPS with: sudo certbot --nginx -d your-subdomain.yourdomain.com"
+echo "  - Ensure host Nginx proxies your subdomain to 127.0.0.1:${HOST_PORT}"
+echo "  - Set VITE_API_URL on Vercel to https://your-api-subdomain"
+echo "  - Set GOOGLE_REDIRECT_URL in Google Console"
