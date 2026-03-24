@@ -25,8 +25,13 @@ func Connect(cfg *config.Config) error {
 		gormLogger = logger.Default.LogMode(logger.Error)
 	}
 
-	// Connect to database
-	DB, err = gorm.Open(postgres.Open(cfg.GetDSN()), &gorm.Config{
+	// Connect to database.
+	// PreferSimpleProtocol disables prepared-statement caching, which is
+	// required when connecting through PgBouncer / Supabase Transaction Pooler.
+	DB, err = gorm.Open(postgres.New(postgres.Config{
+		DSN:                  cfg.GetDSN(),
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
 		Logger: gormLogger,
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
