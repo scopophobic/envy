@@ -68,7 +68,7 @@ func (h *SecretHandler) CreateSecret(c *gin.Context) {
 	}
 
 	ip := c.ClientIP()
-	secret, err := h.secretService.CreateSecret(c.Request.Context(), user.ID, envID, req.Key, req.Value, ip)
+	secret, wasUpdate, err := h.secretService.CreateSecret(c.Request.Context(), user.ID, envID, req.Key, req.Value, ip)
 	if err != nil {
 		if err.Error() == "secret limit reached for this environment" {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
@@ -78,7 +78,11 @@ func (h *SecretHandler) CreateSecret(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, secret)
+	status := http.StatusCreated
+	if wasUpdate {
+		status = http.StatusOK
+	}
+	c.JSON(status, secret)
 }
 
 // ListSecrets lists secrets (metadata) for an environment
@@ -198,6 +202,42 @@ func (h *SecretHandler) DeleteSecret(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Secret deleted successfully"})
+}
+
+// PurgeSecret permanently removes a secret (hard delete, no recovery)
+// DELETE /api/v1/secrets/:id/purge
+func (h *SecretHandler) PurgeSecret(c *gin.Context) {
+	secretID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid secret ID"})
+		return
+	}
+
+	user, err := middleware.GetCurrentUser(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+		return
+	}
+
+	db := database.GetDB()
+	var secret models.Secret
+	if err := db.First(&secret, secretID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Secret not found"})
+		return
+	}
+
+	if _, ok := userHasAccessToEnv(user, secret.EnvironmentID); !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	ip := c.ClientIP()
+	if err := h.secretService.PurgeSecret(c.Request.Context(), user.ID, secretID, ip); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to purge secret"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Secret permanently deleted"})
 }
 
 // ExportEnvironmentSecrets exports decrypted secrets for CLI

@@ -197,6 +197,7 @@ func main() {
 			protected.POST("/environments/:id/secrets", middleware.RequirePermission(models.PermissionSecretsCreate), secretHandler.CreateSecret)
 			protected.PATCH("/secrets/:id", middleware.RequirePermission(models.PermissionSecretsUpdate), secretHandler.UpdateSecret)
 			protected.DELETE("/secrets/:id", middleware.RequirePermission(models.PermissionSecretsDelete), secretHandler.DeleteSecret)
+			protected.DELETE("/secrets/:id/purge", middleware.RequirePermission(models.PermissionSecretsDelete), secretHandler.PurgeSecret)
 
 			// Secrets export for CLI
 			protected.GET("/environments/:id/secrets/export", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ExportEnvironmentSecrets)

@@ -43,27 +43,52 @@ func NewSecretService(encryptor Encryptor, localEncryptor Encryptor, tier *TierS
 	}
 }
 
-// CreateSecret creates a new secret in an environment
-func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUID, key, value string, ip string) (*models.SecretResponse, error) {
+// CreateSecret creates a new secret or updates an existing one with the same key (upsert).
+func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUID, key, value string, ip string) (*models.SecretResponse, bool, error) {
 	if s.encryptor == nil {
-		return nil, fmt.Errorf("secret encryption is not configured")
+		return nil, false, fmt.Errorf("secret encryption is not configured")
 	}
 
 	db := database.GetDB().WithContext(ctx)
 
-	// Tier limit check
-	canCreate, err := s.tierService.CanCreateSecret(envID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check tier limits: %w", err)
-	}
-	if !canCreate {
-		return nil, fmt.Errorf("secret limit reached for this environment")
+	// Check if a secret with this key already exists in the environment
+	var existing models.Secret
+	err := db.Where("environment_id = ? AND key = ?", envID, key).First(&existing).Error
+
+	if err == nil {
+		// Key exists — update its value
+		encrypted, encErr := s.encryptor.Encrypt(ctx, value)
+		if encErr != nil {
+			return nil, false, fmt.Errorf("failed to encrypt secret: %w", encErr)
+		}
+		existing.EncryptedValue = encrypted
+		existing.KMSKeyID = s.encryptor.KeyID()
+		if saveErr := db.Save(&existing).Error; saveErr != nil {
+			return nil, false, saveErr
+		}
+
+		var env models.Environment
+		if err := db.Preload("Project.Organization").First(&env, envID).Error; err == nil && s.auditService != nil {
+			_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, existing.ID, models.ActionSecretUpdate, "secret", ip,
+				datatypes.JSON([]byte(`{"key":"`+key+`","via":"upsert"}`)))
+		}
+
+		resp := existing.ToResponse()
+		return &resp, true, nil
 	}
 
-	// Encrypt value
+	// New secret — check tier limits
+	canCreate, err := s.tierService.CanCreateSecret(envID)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to check tier limits: %w", err)
+	}
+	if !canCreate {
+		return nil, false, fmt.Errorf("secret limit reached for this environment")
+	}
+
 	encrypted, err := s.encryptor.Encrypt(ctx, value)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt secret: %w", err)
+		return nil, false, fmt.Errorf("failed to encrypt secret: %w", err)
 	}
 
 	secret := &models.Secret{
@@ -75,10 +100,9 @@ func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUI
 	}
 
 	if err := db.Create(secret).Error; err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	// Load env -> project -> org for audit
 	var env models.Environment
 	if err := db.Preload("Project.Organization").First(&env, envID).Error; err == nil && s.auditService != nil {
 		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, secret.ID, models.ActionSecretCreate, "secret", ip,
@@ -86,7 +110,7 @@ func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUI
 	}
 
 	resp := secret.ToResponse()
-	return &resp, nil
+	return &resp, false, nil
 }
 
 // ListSecrets lists secrets for an environment (metadata only)
@@ -169,6 +193,31 @@ func (s *SecretService) DeleteSecret(ctx context.Context, userID, secretID uuid.
 	if s.auditService != nil && env.Project.Organization.ID != uuid.Nil {
 		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, secretID, models.ActionSecretDelete, "secret", ip,
 			datatypes.JSON([]byte(`{"key":"`+secret.Key+`"}`)))
+	}
+
+	return nil
+}
+
+// PurgeSecret permanently removes a secret from the database (hard delete).
+func (s *SecretService) PurgeSecret(ctx context.Context, userID, secretID uuid.UUID, ip string) error {
+	db := database.GetDB().WithContext(ctx)
+
+	// Use Unscoped to include soft-deleted records
+	var secret models.Secret
+	if err := db.Unscoped().First(&secret, secretID).Error; err != nil {
+		return err
+	}
+
+	var env models.Environment
+	_ = db.Preload("Project.Organization").First(&env, secret.EnvironmentID).Error
+
+	if err := db.Unscoped().Delete(&models.Secret{}, secretID).Error; err != nil {
+		return err
+	}
+
+	if s.auditService != nil && env.Project.Organization.ID != uuid.Nil {
+		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, secretID, "secret.purge", "secret", ip,
+			datatypes.JSON([]byte(`{"key":"`+secret.Key+`","permanent":true}`)))
 	}
 
 	return nil
