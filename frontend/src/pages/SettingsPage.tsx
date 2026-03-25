@@ -57,6 +57,10 @@ const PLANS = [
   },
 ]
 
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse rounded bg-slate-200 ${className}`} />
+}
+
 function UsageBar({ current, max, label }: { current: number; max: number; label: string }) {
   const isUnlimited = max === -1
   const pct = isUnlimited ? 10 : max === 0 ? 0 : Math.min((current / max) * 100, 100)
@@ -84,10 +88,18 @@ export function SettingsPage() {
   const [user, setUser] = useState<User | null>(null)
   const [tierInfo, setTierInfo] = useState<TierInfo | null>(null)
   const [upgrading, setUpgrading] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const load = useCallback(() => {
-    getCurrentUser().then(setUser).catch(() => {})
-    getTierInfo().then(setTierInfo).catch(() => {})
+    setLoadError(null)
+    setLoading(true)
+    Promise.all([
+      getCurrentUser().then(setUser),
+      getTierInfo().then(setTierInfo),
+    ])
+      .catch((e) => setLoadError((e as Error).message))
+      .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -287,7 +299,36 @@ export function SettingsPage() {
       {tab === 'account' && (
         <Card>
           <h3 className="text-sm font-semibold text-slate-900 mb-4">Account details</h3>
-          {user ? (
+          {loadError ? (
+            <div className="py-4 text-center">
+              <p className="text-sm text-red-600 mb-3">Failed to load account details: {loadError}</p>
+              <button
+                onClick={load}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          ) : loading || !user ? (
+            <div className="space-y-3">
+              <div>
+                <Skeleton className="h-3 w-12 mb-1.5" />
+                <Skeleton className="h-4 w-40" />
+              </div>
+              <div>
+                <Skeleton className="h-3 w-10 mb-1.5" />
+                <Skeleton className="h-4 w-52" />
+              </div>
+              <div>
+                <Skeleton className="h-3 w-20 mb-1.5" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+              <div>
+                <Skeleton className="h-3 w-20 mb-1.5" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+            </div>
+          ) : (
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-slate-500">Name</label>
@@ -306,8 +347,6 @@ export function SettingsPage() {
                 <p className="text-sm text-slate-900">{user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</p>
               </div>
             </div>
-          ) : (
-            <p className="text-sm text-slate-500">Loading...</p>
           )}
         </Card>
       )}

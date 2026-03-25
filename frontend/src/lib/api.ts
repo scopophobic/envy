@@ -356,6 +356,10 @@ export async function deleteSecret(secretId: string): Promise<void> {
   await request(`/api/v1/secrets/${secretId}`, { method: 'DELETE', auth: true })
 }
 
+export async function purgeSecret(secretId: string): Promise<void> {
+  await request(`/api/v1/secrets/${secretId}/purge`, { method: 'DELETE', auth: true })
+}
+
 export type ExportedSecrets = Record<string, string>
 
 export async function exportSecrets(envId: string): Promise<ExportedSecrets> {

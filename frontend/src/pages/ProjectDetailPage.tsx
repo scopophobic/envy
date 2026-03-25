@@ -50,9 +50,25 @@ export function ProjectDetailPage() {
   if (error) return <p className="text-sm text-red-600 p-6">{error}</p>
   if (!project) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
-        <span className="ml-2 text-sm text-slate-500">Loading...</span>
+      <div className="space-y-6">
+        <div>
+          <div className="h-3.5 w-52 animate-pulse rounded bg-slate-100" />
+          <div className="mt-2 h-7 w-40 animate-pulse rounded bg-slate-200" />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="h-5 w-28 animate-pulse rounded bg-slate-200" />
+          <div className="h-9 w-36 animate-pulse rounded-lg bg-slate-200" />
+        </div>
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="rounded-xl border border-slate-200 bg-white p-5">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 animate-pulse rounded-full bg-slate-200" />
+                <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
