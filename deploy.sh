@@ -19,6 +19,12 @@ set -euo pipefail
 #
 
 ENV_FILE=".env.production"
+COMPOSE="docker compose"
+
+# Fall back to docker-compose (v1) if v2 plugin is not installed
+if ! docker compose version &>/dev/null; then
+  COMPOSE="docker-compose"
+fi
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: $ENV_FILE not found."
@@ -26,20 +32,23 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+echo "==> Stopping old backend container..."
+$COMPOSE --env-file "$ENV_FILE" rm -sf backend 2>/dev/null || true
+
 echo "==> Building backend..."
-docker-compose --env-file "$ENV_FILE" build backend
+$COMPOSE --env-file "$ENV_FILE" build --no-cache backend
 
 echo "==> Starting backend..."
-docker-compose --env-file "$ENV_FILE" up -d backend
+$COMPOSE --env-file "$ENV_FILE" up -d backend
 
 echo "==> Waiting for backend to start..."
-sleep 3
+sleep 5
 
 echo "==> Running migrations..."
-docker-compose --env-file "$ENV_FILE" exec backend envo-server -migrate
+$COMPOSE --env-file "$ENV_FILE" exec backend envo-server -migrate
 
 echo "==> Seeding tier data..."
-docker-compose --env-file "$ENV_FILE" exec backend envo-server -seed
+$COMPOSE --env-file "$ENV_FILE" exec backend envo-server -seed
 
 HOST_PORT=$(grep -E '^HOST_PORT=' "$ENV_FILE" | cut -d= -f2 || echo "8080")
 
