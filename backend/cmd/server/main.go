@@ -173,10 +173,10 @@ func main() {
 			protected.PATCH("/orgs/:id", middleware.RequirePermission(models.PermissionOrgManage), orgHandler.UpdateOrganization)
 			protected.DELETE("/orgs/:id", middleware.RequirePermission(models.PermissionOrgManage), orgHandler.DeleteOrganization)
 
-			// Organization members
-			protected.POST("/orgs/:id/members", middleware.RequirePermission(models.PermissionMembersInvite), orgHandler.InviteMember)
-			protected.PATCH("/orgs/:id/members/:memberId", middleware.RequirePermission(models.PermissionMembersManage), orgHandler.UpdateMemberRole)
-			protected.DELETE("/orgs/:id/members/:memberId", middleware.RequirePermission(models.PermissionMembersManage), orgHandler.RemoveMember)
+			// Organization members (blocked for personal workspaces)
+			protected.POST("/orgs/:id/members", middleware.RejectIfPersonalWorkspace(), middleware.RequirePermission(models.PermissionMembersInvite), orgHandler.InviteMember)
+			protected.PATCH("/orgs/:id/members/:memberId", middleware.RejectIfPersonalWorkspace(), middleware.RequirePermission(models.PermissionMembersManage), orgHandler.UpdateMemberRole)
+			protected.DELETE("/orgs/:id/members/:memberId", middleware.RejectIfPersonalWorkspace(), middleware.RequirePermission(models.PermissionMembersManage), orgHandler.RemoveMember)
 
 			// Projects (use :id for org to match GET /orgs/:id)
 			protected.GET("/orgs/:id/projects", projectHandler.ListOrgProjects)

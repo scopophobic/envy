@@ -40,10 +40,11 @@ func (s *OrgService) CreateOrganization(ownerID uuid.UUID, name string) (*models
 		return nil, fmt.Errorf("failed to find owner role: %w", err)
 	}
 
-	// Create organization
+	// Create organization (explicit creation is always an org workspace, not personal)
 	org := &models.Organization{
-		Name:    name,
-		OwnerID: ownerID,
+		Name:      name,
+		OwnerID:   ownerID,
+		OwnerType: models.OwnerTypeOrg,
 	}
 
 	err = db.Transaction(func(tx *gorm.DB) error {
@@ -87,16 +88,17 @@ func (s *OrgService) GetOrganization(orgID uuid.UUID) (*models.Organization, err
 	return &org, nil
 }
 
-// ListUserOrganizations lists all organizations a user has access to
+// ListUserOrganizations lists all workspaces a user has access to.
+// Personal workspaces appear first, then org workspaces sorted by name.
 func (s *OrgService) ListUserOrganizations(userID uuid.UUID) ([]models.Organization, error) {
 	db := database.GetDB()
 
 	var orgs []models.Organization
-	
-	// Get organizations where user is a member
+
 	err := db.Joins("JOIN org_members ON org_members.org_id = organizations.id").
 		Where("org_members.user_id = ?", userID).
 		Preload("Owner").
+		Order("CASE WHEN organizations.owner_type = 'personal' THEN 0 ELSE 1 END, organizations.name ASC").
 		Find(&orgs).Error
 
 	if err != nil {
@@ -123,17 +125,23 @@ func (s *OrgService) UpdateOrganization(orgID uuid.UUID, name string) (*models.O
 	return &org, nil
 }
 
-// DeleteOrganization deletes an organization
+// DeleteOrganization deletes an organization. Personal workspaces cannot be deleted.
 func (s *OrgService) DeleteOrganization(orgID uuid.UUID) error {
 	db := database.GetDB()
 
+	var org models.Organization
+	if err := db.First(&org, orgID).Error; err != nil {
+		return err
+	}
+	if org.IsPersonal() {
+		return fmt.Errorf("personal workspaces cannot be deleted")
+	}
+
 	return db.Transaction(func(tx *gorm.DB) error {
-		// Delete all members
 		if err := tx.Where("org_id = ?", orgID).Delete(&models.OrgMember{}).Error; err != nil {
 			return err
 		}
 
-		// Delete organization
 		if err := tx.Delete(&models.Organization{}, orgID).Error; err != nil {
 			return err
 		}

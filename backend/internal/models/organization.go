@@ -7,22 +7,37 @@ import (
 	"gorm.io/gorm"
 )
 
-// Organization represents an organization
+// OwnerType distinguishes personal workspaces from team/org workspaces.
+type OwnerType string
+
+const (
+	OwnerTypePersonal OwnerType = "personal"
+	OwnerTypeOrg      OwnerType = "org"
+)
+
+// Organization represents a workspace (personal or team).
+// Personal workspaces are auto-created on signup and skip all team/invite UI.
 type Organization struct {
-	ID      uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	OwnerID uuid.UUID `gorm:"type:uuid;not null;index" json:"owner_id"`
-	Name    string    `gorm:"type:varchar(255);not null" json:"name"`
-	
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	OwnerID   uuid.UUID `gorm:"type:uuid;not null;index" json:"owner_id"`
+	Name      string    `gorm:"type:varchar(255);not null" json:"name"`
+	OwnerType OwnerType `gorm:"type:varchar(20);not null;default:'org'" json:"owner_type"`
+
 	// Timestamps
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
-	
+
 	// Relationships
 	Owner    User        `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
 	Members  []OrgMember `gorm:"foreignKey:OrgID" json:"members,omitempty"`
 	Projects []Project   `gorm:"foreignKey:OrgID" json:"projects,omitempty"`
 	Roles    []Role      `gorm:"foreignKey:OrgID" json:"roles,omitempty"`
+}
+
+// IsPersonal returns true if this is a personal (non-team) workspace.
+func (o *Organization) IsPersonal() bool {
+	return o.OwnerType == OwnerTypePersonal
 }
 
 // BeforeCreate hook to generate UUID

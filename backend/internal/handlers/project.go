@@ -23,14 +23,11 @@ func NewProjectHandler(projectService *services.ProjectService) *ProjectHandler 
 	}
 }
 
-// userHasAccessToOrg checks if the current user is a member of the given org
+// userHasAccessToOrg checks if the current user has access to the workspace.
+// For personal workspaces, only the owner has access.
 func userHasAccessToOrg(user *models.User, orgID uuid.UUID) bool {
-	for _, m := range user.OrgMemberships {
-		if m.OrgID == orgID {
-			return true
-		}
-	}
-	return false
+	hasAccess, _ := middleware.CheckWorkspaceAccess(user, orgID)
+	return hasAccess
 }
 
 // CreateProject creates a new project within an organization

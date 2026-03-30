@@ -10,13 +10,14 @@ import (
 	"github.com/envo/backend/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // Encryptor is the interface for encrypting/decrypting secrets.
-// Implemented by both KMSService (production) and LocalEncryptionService (dev).
+// workspaceID scopes the derived key via HKDF so each workspace is cryptographically isolated.
 type Encryptor interface {
-	Encrypt(ctx context.Context, plaintext string) (string, error)
-	Decrypt(ctx context.Context, encryptedData string) (string, error)
+	Encrypt(ctx context.Context, plaintext string, workspaceID string) (string, error)
+	Decrypt(ctx context.Context, encryptedData string, workspaceID string) (string, error)
 	KeyID() string
 }
 
@@ -43,6 +44,15 @@ func NewSecretService(encryptor Encryptor, localEncryptor Encryptor, tier *TierS
 	}
 }
 
+// resolveWorkspaceID loads the workspace (org) ID for an environment, needed for HKDF key scoping.
+func (s *SecretService) resolveWorkspaceID(db *gorm.DB, envID uuid.UUID) (uuid.UUID, error) {
+	var env models.Environment
+	if err := db.Preload("Project").First(&env, envID).Error; err != nil {
+		return uuid.Nil, err
+	}
+	return env.Project.OrgID, nil
+}
+
 // CreateSecret creates a new secret or updates an existing one with the same key (upsert).
 func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUID, key, value string, ip string) (*models.SecretResponse, bool, error) {
 	if s.encryptor == nil {
@@ -51,13 +61,19 @@ func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUI
 
 	db := database.GetDB().WithContext(ctx)
 
+	wsID, err := s.resolveWorkspaceID(db, envID)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to resolve workspace: %w", err)
+	}
+	wsKey := wsID.String()
+
 	// Check if a secret with this key already exists in the environment
 	var existing models.Secret
-	err := db.Where("environment_id = ? AND key = ?", envID, key).First(&existing).Error
+	err = db.Where("environment_id = ? AND key = ?", envID, key).First(&existing).Error
 
 	if err == nil {
 		// Key exists — update its value
-		encrypted, encErr := s.encryptor.Encrypt(ctx, value)
+		encrypted, encErr := s.encryptor.Encrypt(ctx, value, wsKey)
 		if encErr != nil {
 			return nil, false, fmt.Errorf("failed to encrypt secret: %w", encErr)
 		}
@@ -86,7 +102,7 @@ func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUI
 		return nil, false, fmt.Errorf("secret limit reached for this environment")
 	}
 
-	encrypted, err := s.encryptor.Encrypt(ctx, value)
+	encrypted, err := s.encryptor.Encrypt(ctx, value, wsKey)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to encrypt secret: %w", err)
 	}
@@ -151,7 +167,11 @@ func (s *SecretService) UpdateSecret(ctx context.Context, userID, secretID uuid.
 	}
 
 	if newValue != nil {
-		encrypted, err := s.encryptor.Encrypt(ctx, *newValue)
+		wsID, err := s.resolveWorkspaceID(db, secret.EnvironmentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve workspace: %w", err)
+		}
+		encrypted, err := s.encryptor.Encrypt(ctx, *newValue, wsID.String())
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt secret: %w", err)
 		}
@@ -162,7 +182,6 @@ func (s *SecretService) UpdateSecret(ctx context.Context, userID, secretID uuid.
 		return nil, err
 	}
 
-	// Load env -> project -> org for audit
 	var env models.Environment
 	if err := db.Preload("Project.Organization").First(&env, secret.EnvironmentID).Error; err == nil && s.auditService != nil {
 		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, secret.ID, models.ActionSecretUpdate, "secret", ip,
@@ -236,13 +255,13 @@ func (s *SecretService) decryptorForSecret(sec *models.Secret) Encryptor {
 }
 
 // tryDecrypt tries dec with the given encryptor; if it fails and alt is different, tries alt.
-func (s *SecretService) tryDecrypt(ctx context.Context, sec *models.Secret, dec, alt Encryptor) (string, error) {
-	plain, err := dec.Decrypt(ctx, sec.EncryptedValue)
+func (s *SecretService) tryDecrypt(ctx context.Context, sec *models.Secret, dec, alt Encryptor, wsID string) (string, error) {
+	plain, err := dec.Decrypt(ctx, sec.EncryptedValue, wsID)
 	if err == nil {
 		return plain, nil
 	}
 	if alt != nil && alt != dec {
-		plain, err2 := alt.Decrypt(ctx, sec.EncryptedValue)
+		plain, err2 := alt.Decrypt(ctx, sec.EncryptedValue, wsID)
 		if err2 == nil {
 			return plain, nil
 		}
@@ -272,6 +291,7 @@ func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, en
 		return nil, uuid.Nil, err
 	}
 
+	wsID := env.Project.OrgID.String()
 	result := make(map[string]string, len(secrets))
 	for _, sec := range secrets {
 		dec := s.decryptorForSecret(&sec)
@@ -279,7 +299,7 @@ func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, en
 		if dec == s.localEncryptor {
 			alt = s.encryptor
 		}
-		plaintext, err := s.tryDecrypt(ctx, &sec, dec, alt)
+		plaintext, err := s.tryDecrypt(ctx, &sec, dec, alt, wsID)
 		if err != nil {
 			log.Printf("[envo] skip secret %s (%s): decrypt failed: %v", sec.ID, sec.Key, err)
 			continue

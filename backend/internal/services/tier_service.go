@@ -50,9 +50,9 @@ func (s *TierService) CanCreateOrganization(userID uuid.UUID) (bool, error) {
 		return true, nil
 	}
 
-	// Count user's owned organizations
+	// Count user's owned org-type organizations (personal workspaces don't count)
 	var count int64
-	if err := db.Model(&models.Organization{}).Where("owner_id = ?", userID).Count(&count).Error; err != nil {
+	if err := db.Model(&models.Organization{}).Where("owner_id = ? AND owner_type = ?", userID, models.OwnerTypeOrg).Count(&count).Error; err != nil {
 		return false, err
 	}
 

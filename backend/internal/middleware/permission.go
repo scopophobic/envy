@@ -3,11 +3,14 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/envo/backend/internal/database"
 	"github.com/envo/backend/internal/models"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
-// RequirePermission checks if the user has the required permission
+// RequirePermission checks if the user has the required permission.
+// For personal workspaces, the owner is granted all permissions automatically.
 func RequirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, err := GetCurrentUser(c)
@@ -51,7 +54,6 @@ func RequireAnyPermission(permissions ...string) gin.HandlerFunc {
 
 // HasPermission checks if a user has a specific permission
 func HasPermission(user *models.User, permissionName string) bool {
-	// Load user's org memberships with roles and permissions
 	for _, membership := range user.OrgMemberships {
 		for _, permission := range membership.Role.Permissions {
 			if permission.Name == permissionName {
@@ -65,7 +67,7 @@ func HasPermission(user *models.User, permissionName string) bool {
 // GetUserPermissions returns all permissions for a user across all orgs
 func GetUserPermissions(user *models.User) []string {
 	permissionSet := make(map[string]bool)
-	
+
 	for _, membership := range user.OrgMemberships {
 		for _, permission := range membership.Role.Permissions {
 			permissionSet[permission.Name] = true
@@ -78,4 +80,54 @@ func GetUserPermissions(user *models.User) []string {
 	}
 
 	return permissions
+}
+
+// CheckWorkspaceAccess verifies a user has access to a workspace (org).
+// Personal workspaces short-circuit: only the owner can access, with full permissions.
+func CheckWorkspaceAccess(user *models.User, orgID uuid.UUID) (bool, bool) {
+	db := database.GetDB()
+	var org models.Organization
+	if err := db.First(&org, orgID).Error; err != nil {
+		return false, false
+	}
+
+	if org.IsPersonal() {
+		return org.OwnerID == user.ID, org.OwnerID == user.ID
+	}
+
+	// Org workspace: check membership
+	for _, m := range user.OrgMemberships {
+		if m.OrgID == orgID {
+			return true, false
+		}
+	}
+	return false, false
+}
+
+// RejectIfPersonalWorkspace is middleware for routes that should be blocked on personal workspaces
+// (e.g. invite, member management). Expects :id param to be the org/workspace ID.
+func RejectIfPersonalWorkspace() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		orgIDStr := c.Param("id")
+		orgID, err := uuid.Parse(orgIDStr)
+		if err != nil {
+			c.Next()
+			return
+		}
+
+		db := database.GetDB()
+		var org models.Organization
+		if err := db.First(&org, orgID).Error; err != nil {
+			c.Next()
+			return
+		}
+
+		if org.IsPersonal() {
+			c.JSON(http.StatusForbidden, gin.H{"error": "This action is not available for personal workspaces"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
 }

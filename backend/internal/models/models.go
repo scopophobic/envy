@@ -58,6 +58,10 @@ func RunCustomMigrations(db *gorm.DB) error {
 			name: "idx_audit_logs_org_created",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_audit_logs_org_created ON audit_logs (org_id, created_at DESC)`,
 		},
+		{
+			name: "idx_orgs_owner_personal",
+			sql:  `CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_owner_personal ON organizations (owner_id) WHERE owner_type = 'personal' AND deleted_at IS NULL`,
+		},
 	}
 
 	for _, idx := range indexes {
@@ -66,6 +70,60 @@ func RunCustomMigrations(db *gorm.DB) error {
 		} else {
 			log.Printf("  ✓ index %s", idx.name)
 		}
+	}
+
+	if err := backfillPersonalWorkspaces(db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// backfillPersonalWorkspaces ensures every existing user has a personal workspace
+// with an Owner membership so listing queries pick it up.
+// Safe to run repeatedly — skips users who already have one.
+func backfillPersonalWorkspaces(db *gorm.DB) error {
+	var users []User
+	if err := db.Find(&users).Error; err != nil {
+		return err
+	}
+
+	var ownerRole Role
+	if err := db.Where("name = ? AND is_system_role = ?", RoleOwner, true).First(&ownerRole).Error; err != nil {
+		log.Printf("  ⚠ backfill: Owner role not found, skipping personal workspace creation")
+		return nil
+	}
+
+	for _, u := range users {
+		var count int64
+		db.Model(&Organization{}).
+			Where("owner_id = ? AND owner_type = ?", u.ID, OwnerTypePersonal).
+			Count(&count)
+		if count > 0 {
+			continue
+		}
+
+		personal := Organization{
+			OwnerID:   u.ID,
+			Name:      u.Name + "'s workspace",
+			OwnerType: OwnerTypePersonal,
+		}
+		if err := db.Create(&personal).Error; err != nil {
+			log.Printf("  ⚠ backfill personal workspace for %s: %v", u.Email, err)
+			continue
+		}
+
+		member := OrgMember{
+			OrgID:  personal.ID,
+			UserID: u.ID,
+			RoleID: ownerRole.ID,
+		}
+		if err := db.Create(&member).Error; err != nil {
+			log.Printf("  ⚠ backfill membership for %s: %v", u.Email, err)
+			continue
+		}
+
+		log.Printf("  ✓ backfilled personal workspace for %s", u.Email)
 	}
 
 	return nil

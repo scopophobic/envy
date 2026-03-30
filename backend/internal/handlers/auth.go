@@ -335,11 +335,11 @@ func (h *AuthHandler) GetTierInfo(c *gin.Context) {
 	maxDevs, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxDevs)
 	maxSecrets, _ := h.tierService.GetLimit(tier, models.LimitTypeMaxSecretsPerEnv)
 
-	// Global: owned orgs
+	// Global: owned orgs (personal workspaces don't count)
 	var ownedOrgs int64
-	db.Model(&models.Organization{}).Where("owner_id = ?", user.ID).Count(&ownedOrgs)
+	db.Model(&models.Organization{}).Where("owner_id = ? AND owner_type = ?", user.ID, models.OwnerTypeOrg).Count(&ownedOrgs)
 
-	// Per-org usage breakdown
+	// Per-org usage breakdown (all workspaces user owns)
 	var orgs []models.Organization
 	db.Where("owner_id = ?", user.ID).Find(&orgs)
 

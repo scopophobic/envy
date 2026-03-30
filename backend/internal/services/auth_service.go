@@ -113,7 +113,7 @@ func (s *AuthService) getUserInfo(ctx context.Context, token *oauth2.Token) (*Go
 	return &userInfo, nil
 }
 
-// findOrCreateUser finds or creates a user
+// findOrCreateUser finds or creates a user. New users automatically get a personal workspace.
 func (s *AuthService) findOrCreateUser(userInfo *GoogleUserInfo) (*models.User, error) {
 	db := database.GetDB()
 
@@ -121,7 +121,7 @@ func (s *AuthService) findOrCreateUser(userInfo *GoogleUserInfo) (*models.User, 
 	err := db.Where("oauth_provider = ? AND oauth_id = ?", "google", userInfo.ID).First(&user).Error
 
 	if err == gorm.ErrRecordNotFound {
-		// Create new user
+		// Create new user + personal workspace in a single transaction
 		user = models.User{
 			Email:              userInfo.Email,
 			Name:               userInfo.Name,
@@ -131,8 +131,34 @@ func (s *AuthService) findOrCreateUser(userInfo *GoogleUserInfo) (*models.User, 
 			SubscriptionStatus: string(models.StatusActive),
 		}
 
-		if err := db.Create(&user).Error; err != nil {
-			return nil, err
+		txErr := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(&user).Error; err != nil {
+				return err
+			}
+
+			personal := models.Organization{
+				OwnerID:   user.ID,
+				Name:      user.Name + "'s workspace",
+				OwnerType: models.OwnerTypePersonal,
+			}
+			if err := tx.Create(&personal).Error; err != nil {
+				return fmt.Errorf("failed to create personal workspace: %w", err)
+			}
+
+			// Add owner as member so permission queries work uniformly
+			var ownerRole models.Role
+			if err := tx.Where("name = ? AND is_system_role = ?", models.RoleOwner, true).First(&ownerRole).Error; err != nil {
+				return fmt.Errorf("owner role not found: %w", err)
+			}
+			member := models.OrgMember{
+				OrgID:  personal.ID,
+				UserID: user.ID,
+				RoleID: ownerRole.ID,
+			}
+			return tx.Create(&member).Error
+		})
+		if txErr != nil {
+			return nil, txErr
 		}
 	} else if err != nil {
 		return nil, err

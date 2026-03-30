@@ -49,9 +49,9 @@ func NewKMSService(cfg *config.Config) (*KMSService, error) {
 	}, nil
 }
 
-// Encrypt encrypts plaintext using envelope encryption
-// Returns base64-encoded encrypted data in format: encryptedDataKey:encryptedValue
-func (s *KMSService) Encrypt(ctx context.Context, plaintext string) (string, error) {
+// Encrypt encrypts plaintext using envelope encryption.
+// workspaceID is accepted for interface conformance; KMS uses its own key hierarchy.
+func (s *KMSService) Encrypt(ctx context.Context, plaintext string, workspaceID string) (string, error) {
 	// Step 1: Generate a data key from KMS
 	dataKeyOutput, err := s.client.GenerateDataKey(ctx, &kms.GenerateDataKeyInput{
 		KeyId:   aws.String(s.keyID),
@@ -89,9 +89,9 @@ func (s *KMSService) Encrypt(ctx context.Context, plaintext string) (string, err
 	return fmt.Sprintf("%s:%s", encryptedDataKey, encryptedValue), nil
 }
 
-// Decrypt decrypts ciphertext using envelope encryption
-// Expects input in format: encryptedDataKey:encryptedValue
-func (s *KMSService) Decrypt(ctx context.Context, encryptedData string) (string, error) {
+// Decrypt decrypts ciphertext using envelope encryption.
+// workspaceID is accepted for interface conformance; KMS uses its own key hierarchy.
+func (s *KMSService) Decrypt(ctx context.Context, encryptedData string, workspaceID string) (string, error) {
 	// Reject values encrypted by local encryptor (they start with "local:")
 	if strings.HasPrefix(encryptedData, "local:") {
 		return "", fmt.Errorf("value was encrypted with local encryptor, not KMS")
