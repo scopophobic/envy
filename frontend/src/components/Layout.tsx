@@ -105,29 +105,59 @@ export function Layout() {
                     </svg>
                   </button>
                   {orgDropdownOpen && (
-                    <div className="absolute left-0 top-full mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg z-50">
-                      <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Organizations</div>
-                      {orgs.map(o => (
-                        <Link
-                          key={o.id}
-                          to={`/orgs/${o.id}`}
-                          onClick={() => setOrgDropdownOpen(false)}
-                          className={cn(
-                            'flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 transition-colors',
-                            o.id === currentOrgId ? 'bg-slate-50 font-medium text-slate-900' : 'text-slate-600',
-                          )}
-                        >
-                          <span className="flex h-5 w-5 items-center justify-center rounded bg-violet-100 text-[10px] font-semibold text-violet-600">
-                            {o.name[0]?.toUpperCase()}
-                          </span>
-                          <span className="truncate">{o.name}</span>
-                          {o.id === currentOrgId && (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="ml-auto text-violet-600 shrink-0">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </Link>
-                      ))}
+                    <div className="absolute left-0 top-full mt-1 w-60 rounded-lg border border-slate-200 bg-white py-1 shadow-lg z-50">
+                      {orgs.some(o => o.owner_type === 'personal') && (
+                        <>
+                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Personal</div>
+                          {orgs.filter(o => o.owner_type === 'personal').map(o => (
+                            <Link
+                              key={o.id}
+                              to={`/orgs/${o.id}`}
+                              onClick={() => setOrgDropdownOpen(false)}
+                              className={cn(
+                                'flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 transition-colors',
+                                o.id === currentOrgId ? 'bg-slate-50 font-medium text-slate-900' : 'text-slate-600',
+                              )}
+                            >
+                              <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-[10px] font-semibold text-emerald-600">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                              </span>
+                              <span className="truncate">{o.name}</span>
+                              {o.id === currentOrgId && (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="ml-auto text-emerald-600 shrink-0">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              )}
+                            </Link>
+                          ))}
+                        </>
+                      )}
+                      {orgs.some(o => o.owner_type !== 'personal') && (
+                        <>
+                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Organizations</div>
+                          {orgs.filter(o => o.owner_type !== 'personal').map(o => (
+                            <Link
+                              key={o.id}
+                              to={`/orgs/${o.id}`}
+                              onClick={() => setOrgDropdownOpen(false)}
+                              className={cn(
+                                'flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 transition-colors',
+                                o.id === currentOrgId ? 'bg-slate-50 font-medium text-slate-900' : 'text-slate-600',
+                              )}
+                            >
+                              <span className="flex h-5 w-5 items-center justify-center rounded bg-violet-100 text-[10px] font-semibold text-violet-600">
+                                {o.name[0]?.toUpperCase()}
+                              </span>
+                              <span className="truncate">{o.name}</span>
+                              {o.id === currentOrgId && (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="ml-auto text-violet-600 shrink-0">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              )}
+                            </Link>
+                          ))}
+                        </>
+                      )}
                       <div className="border-t border-slate-100 mt-1 pt-1">
                         <Link
                           to="/orgs"
@@ -138,7 +168,7 @@ export function Layout() {
                             <line x1="12" y1="5" x2="12" y2="19" />
                             <line x1="5" y1="12" x2="19" y2="12" />
                           </svg>
-                          Create organization
+                          All workspaces
                         </Link>
                       </div>
                     </div>
@@ -164,17 +194,19 @@ export function Layout() {
                   >
                     Projects
                   </NavLink>
-                  <NavLink
-                    to={`/orgs/${currentOrgId}/members`}
-                    className={({ isActive }) =>
-                      cn(
-                        'rounded-md px-2.5 py-1.5 text-sm transition-colors',
-                        isActive ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
-                      )
-                    }
-                  >
-                    Team
-                  </NavLink>
+                  {currentOrg?.owner_type !== 'personal' && (
+                    <NavLink
+                      to={`/orgs/${currentOrgId}/members`}
+                      className={({ isActive }) =>
+                        cn(
+                          'rounded-md px-2.5 py-1.5 text-sm transition-colors',
+                          isActive ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
+                        )
+                      }
+                    >
+                      Team
+                    </NavLink>
+                  )}
                 </div>
               </>
             )}

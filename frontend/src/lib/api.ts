@@ -182,7 +182,9 @@ export async function getTierInfo(): Promise<TierInfo> {
 
 // ── Organizations ────────────────────────────────────────────────────
 
-export type Org = { id: string; name: string; owner?: { id: string; email: string; name: string } }
+export type OwnerType = 'personal' | 'org'
+
+export type Org = { id: string; name: string; owner_type: OwnerType; owner?: { id: string; email: string; name: string } }
 
 export async function listOrgs(): Promise<Org[]> {
   return request<Org[]>('/api/v1/orgs', { auth: true })
@@ -197,7 +199,7 @@ export type OrgMember = {
   role?: { id: string; name: string; is_system_role: boolean }
 }
 
-export type OrgDetail = Org & { members?: OrgMember[] }
+export type OrgDetail = Org & { members?: OrgMember[]; owner_type: OwnerType }
 
 export async function getOrg(id: string): Promise<OrgDetail> {
   return request<OrgDetail>(`/api/v1/orgs/${id}`, { auth: true })

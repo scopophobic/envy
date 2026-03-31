@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import {
@@ -17,6 +17,7 @@ const ROLES = ['Owner', 'Admin', 'Secret Manager', 'Developer', 'Viewer']
 
 export function MembersPage() {
   const { id } = useParams()
+  const nav = useNavigate()
   const [org, setOrg] = useState<OrgDetail | null>(null)
   const [tierInfo, setTierInfo] = useState<TierInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -36,9 +37,15 @@ export function MembersPage() {
 
   const load = useCallback(() => {
     if (!id) return
-    getOrg(id).then(setOrg).catch((e) => setError((e as Error).message))
+    getOrg(id).then((o) => {
+      if (o.owner_type === 'personal') {
+        nav(`/orgs/${id}`, { replace: true })
+        return
+      }
+      setOrg(o)
+    }).catch((e) => setError((e as Error).message))
     getTierInfo().then(setTierInfo).catch(() => {})
-  }, [id])
+  }, [id, nav])
 
   useEffect(() => { load() }, [load])
 

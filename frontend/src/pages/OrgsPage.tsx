@@ -72,9 +72,9 @@ export function OrgsPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Organizations</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Workspaces</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Manage your organizations, projects, and team.
+            Your personal workspace and team organizations.
           </p>
         </div>
       </div>
@@ -155,12 +155,21 @@ export function OrgsPage() {
             <Card className="transition-all hover:border-slate-300 hover:shadow-sm">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100 text-sm font-semibold text-violet-600">
-                    {o.name[0]?.toUpperCase()}
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-semibold ${o.owner_type === 'personal' ? 'bg-emerald-100 text-emerald-600' : 'bg-violet-100 text-violet-600'}`}>
+                    {o.owner_type === 'personal' ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                    ) : (
+                      o.name[0]?.toUpperCase()
+                    )}
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-slate-900">{o.name}</div>
-                    {o.owner && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-900">{o.name}</span>
+                      {o.owner_type === 'personal' && (
+                        <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">Personal</span>
+                      )}
+                    </div>
+                    {o.owner && o.owner_type !== 'personal' && (
                       <div className="mt-0.5 text-xs text-slate-500">{o.owner.name || o.owner.email}</div>
                     )}
                   </div>
