@@ -1,75 +1,76 @@
-# Install Envo CLI (one line)
+# Install Envo CLI
 
-Replace `YOUR_ORG/YOUR_REPO` with your GitHub repo (e.g. `mycompany/Envo`).
+One command to install. Works on macOS, Linux, and Windows.
 
 ---
 
 ## macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/scopophobic/envy/main/install.sh | sh
 ```
 
-Then restart your terminal (or run `source ~/.bashrc` / `source ~/.zshrc`), and run:
-
-```bash
-envo whoami
-envo login
-```
-
----
-
-## Windows (PowerShell)
+## Windows — PowerShell
 
 ```powershell
-irm https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/scopophobic/envy/main/install.ps1 | iex
 ```
 
-If you get an execution policy error, run first:
+If you get an execution policy error, run this first:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-Then restart the terminal and run:
+## Windows — Git Bash
 
-```powershell
-envo whoami
-envo login
+The same `install.sh` works in Git Bash. It detects MSYS/MINGW and downloads the Windows binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/scopophobic/envy/main/install.sh | sh
+```
+
+It installs to `~/bin/envo.exe`. If `~/bin` isn't in your PATH, add this to `~/.bashrc`:
+
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
+## Go developers
+
+```bash
+go install github.com/envo/cli/cmd/envo@latest
 ```
 
 ---
 
-## Optional: install to a specific directory
+## Quick start
 
-**macOS/Linux:** `ENVO_INSTALL_DIR=/usr/local/bin curl -fsSL ... | sh`  
-**Windows:** `$env:ENVO_INSTALL_DIR = "C:\Tools"; irm ... | iex`
+```bash
+# 1. Sign in (opens browser)
+envo login
+
+# 2. Pull secrets to a .env file
+envo pull --org my-team --project api --env development
+
+# 3. Or run a command with secrets injected (never writes to disk)
+envo run --org my-team --project api --env development -- npm start
+
+# 4. Check who you're logged in as
+envo whoami
+```
 
 ---
 
 ## For maintainers: creating a release
 
-1. **Build all binaries** (from repo root or from `cli/`):
+Releases are automated via GitHub Actions. To publish a new CLI version:
 
-   **macOS/Linux:**
-   ```bash
-   cd cli && chmod +x build-release.sh && ./build-release.sh
-   ```
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
 
-   **Windows:**
-   ```powershell
-   cd cli; .\build-release.ps1
-   ```
+GoReleaser builds binaries for all platforms (macOS amd64/arm64, Linux amd64/arm64, Windows amd64) and creates a GitHub Release with all assets automatically.
 
-2. **Create a new GitHub Release** (tag e.g. `v0.1.0`).
-
-3. **Upload the files from `cli/dist/`** as release assets:
-   - `envo-windows-amd64.exe`
-   - `envo-darwin-amd64`
-   - `envo-darwin-arm64`
-   - `envo-linux-amd64`
-   - `envo-linux-arm64`
-
-4. **Update INSTALL.md** (and your main README) so the one-liner uses your real repo (e.g. `yourorg/Envo` instead of `YOUR_ORG/YOUR_REPO`).
-
-Asset names must match exactly what the install scripts expect.
+The install scripts always pull the latest release.

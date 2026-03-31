@@ -60,11 +60,14 @@ func newLoginCmd(deps *rootDeps) *cobra.Command {
 			client := api.NewClient(deps.cfg.APIBaseURL, nil)
 			startURL := client.CLIBrowserStartURL(callbackURL)
 
-			fmt.Println("Opening browser for login...")
-			fmt.Println("(Host in URL must match GOOGLE_REDIRECT_URL in backend .env — use --api http://127.0.0.1:8080 if you use 127.0.0.1 there.)")
+			fmt.Println()
+			fmt.Println("  Opening browser for login...")
+			fmt.Println()
 			_ = openBrowser(startURL)
-			fmt.Println("If it didn't open automatically, open this URL:")
-			fmt.Println(startURL)
+			fmt.Println("  If it didn't open, visit this URL:")
+			fmt.Printf("  %s\n", startURL)
+			fmt.Println()
+			fmt.Println("  Waiting for authentication...")
 
 			// Wait for callback code, then exchange
 			ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Minute)
@@ -88,7 +91,15 @@ func newLoginCmd(deps *rootDeps) *cobra.Command {
 				return err
 			}
 
-			fmt.Println("Login saved.")
+			fmt.Println()
+			fmt.Println("  ✓ Logged in successfully!")
+			fmt.Println()
+			fmt.Println("  Next steps:")
+			fmt.Println("    envo whoami                                     Check your account")
+			fmt.Println("    envo pull --org <org> --project <p> --env <e>   Pull secrets to .env")
+			fmt.Println("    envo run  --org <org> --project <p> --env <e> -- <cmd>")
+			fmt.Println("                                                    Run with secrets injected")
+			fmt.Println()
 			return nil
 		},
 	}

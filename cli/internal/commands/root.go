@@ -9,6 +9,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version is set at build time by GoReleaser via ldflags.
+var Version = "dev"
+
 type rootDeps struct {
 	cfg    config.Config
 	tokens *store.Tokens
@@ -21,8 +24,9 @@ func newRootCmd() (*cobra.Command, *rootDeps) {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "envo",
-		Short: "Envo CLI",
+		Use:     "envo",
+		Short:   "Envo — secure secret management for developers",
+		Version: Version,
 	}
 
 	cmd.PersistentFlags().String("api", "", "Envo API base URL (or set ENVO_API_URL)")

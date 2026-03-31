@@ -1,0 +1,46 @@
+version: 2
+
+project_name: envo
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/envo
+    binary: envo
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/envo/cli/internal/commands.Version={{.Version}}
+
+archives:
+  - formats: ['tar.gz']
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+    name_template: "envo_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: scopophobic
+    name: envy
+  prerelease: auto
