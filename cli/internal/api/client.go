@@ -230,8 +230,9 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*CurrentUser, error) {
 // -------- Domain models (minimal) --------
 
 type Org struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	OwnerType string `json:"owner_type"` // "personal" or "org"
 }
 
 type Project struct {

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/envo/cli/internal/api"
-	"github.com/envo/cli/internal/dotenv"
 	"github.com/envo/cli/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -24,7 +23,7 @@ func newRunCmd(deps *rootDeps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "run --org <org> --project <project> --env <env> -- <command> [args...]",
-		Short: "Pull secrets then run a command with them",
+		Short: "Fetch secrets and inject them as env vars into a child process (never writes to disk)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deps.tokens == nil {
@@ -65,37 +64,26 @@ func newRunCmd(deps *rootDeps) *cobra.Command {
 				return err
 			}
 
-			if err := dotenv.EnsureGitignoreHasDotenv(dir); err != nil {
-				return err
-			}
-			envPath, err := dotenv.WriteEnvFile(dir, secrets)
-			if err != nil {
-				return err
-			}
-
-			envMap, err := dotenv.LoadEnvFile(envPath)
-			if err != nil {
-				return err
-			}
-
+			// Inject secrets directly into the child process env — never write to disk
 			child := exec.CommandContext(cmd.Context(), args[0], args[1:]...)
 			child.Dir = dir
 			child.Stdout = os.Stdout
 			child.Stderr = os.Stderr
 			child.Stdin = os.Stdin
 			child.Env = os.Environ()
-			for k, v := range envMap {
+			for k, v := range secrets {
 				child.Env = append(child.Env, k+"="+v)
 			}
 
+			fmt.Fprintf(os.Stderr, "envo: injecting %d secrets into %s\n", len(secrets), args[0])
 			return child.Run()
 		},
 	}
 
-	cmd.Flags().StringVar(&orgSel, "org", "", "Organization id or name (required)")
+	cmd.Flags().StringVar(&orgSel, "org", "", "Organization/workspace id or name (required)")
 	cmd.Flags().StringVar(&projectSel, "project", "", "Project id or name (required)")
 	cmd.Flags().StringVar(&envSel, "env", "", "Environment id or name (required)")
-	cmd.Flags().StringVar(&dir, "dir", "", "Working directory / where to write .env (default: current directory)")
+	cmd.Flags().StringVar(&dir, "dir", "", "Working directory (default: current directory)")
 	_ = cmd.MarkFlagRequired("org")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("env")
