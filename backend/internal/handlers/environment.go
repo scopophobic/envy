@@ -73,12 +73,13 @@ func (h *EnvironmentHandler) GetEnvironment(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":           env.ID,
-		"name":         env.Name,
-		"project_id":   env.ProjectID,
-		"project_name": env.Project.Name,
-		"org_id":       env.Project.Organization.ID,
-		"org_name":     env.Project.Organization.Name,
+		"id":             env.ID,
+		"name":           env.Name,
+		"project_id":     env.ProjectID,
+		"project_name":   env.Project.Name,
+		"org_id":         env.Project.Organization.ID,
+		"org_name":       env.Project.Organization.Name,
+		"org_owner_type": env.Project.Organization.OwnerType,
 	})
 }
 
