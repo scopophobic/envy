@@ -29,6 +29,9 @@ export function OrgDetailPage() {
   const projectCount = projects?.length ?? 0
   const projectLimitReached = maxProjects !== -1 && projectCount >= maxProjects
 
+  const isVault = org?.owner_type === 'personal'
+  const displayName = isVault ? 'My Vault' : org?.name ?? ''
+
   const load = useCallback(() => {
     if (!id) return
     getOrg(id).then(setOrg).catch((e) => setError((e as Error).message))
@@ -83,13 +86,28 @@ export function OrgDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
         <div className="text-sm text-slate-500">
-          <Link to="/orgs" className="hover:text-slate-700">Organizations</Link>
+          <Link to="/orgs" className="hover:text-slate-700">Workspaces</Link>
           <span className="mx-1">/</span>
-          <span className="font-medium text-slate-900">{org.name}</span>
+          <span className="font-medium text-slate-900">{displayName}</span>
         </div>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">{org.name}</h1>
+        <div className="mt-1 flex items-center gap-3">
+          {isVault && (
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+            </div>
+          )}
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">{displayName}</h1>
+            {isVault && (
+              <p className="text-sm text-slate-500">Your personal secrets, organized by project and environment.</p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Projects */}
@@ -131,7 +149,7 @@ export function OrgDetailPage() {
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
                   className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  placeholder="api-backend"
+                  placeholder={isVault ? 'my-saas-app' : 'api-backend'}
                   autoFocus
                 />
               </label>
@@ -142,7 +160,7 @@ export function OrgDetailPage() {
                   value={projectDesc}
                   onChange={(e) => setProjectDesc(e.target.value)}
                   className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  placeholder="Backend API service"
+                  placeholder={isVault ? 'Stripe + Supabase + OpenAI keys' : 'Backend API service'}
                 />
               </label>
               <Button type="submit" disabled={creating || !projectName.trim()}>
@@ -162,13 +180,17 @@ export function OrgDetailPage() {
           ) : projects.length === 0 ? (
             <Card>
               <div className="py-8 text-center">
-                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-400">
+                <div className={`mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full ${isVault ? 'bg-emerald-100' : 'bg-slate-100'}`}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={isVault ? 'text-emerald-500' : 'text-slate-400'}>
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
                 </div>
                 <p className="text-sm font-medium text-slate-700">No projects yet</p>
-                <p className="mt-1 text-xs text-slate-500">Create your first project to start adding environments and secrets.</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {isVault
+                    ? 'Create a project for each app you\'re building — like "my-saas", "portfolio", or "api".'
+                    : 'Create your first project to start adding environments and secrets.'}
+                </p>
               </div>
             </Card>
           ) : (
@@ -176,11 +198,14 @@ export function OrgDetailPage() {
               <Link key={p.id} to={`/projects/${p.id}`} className="block">
                 <Card className="transition-all hover:border-slate-300 hover:shadow-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium text-slate-900">{p.name}</div>
-                      {p.description && (
-                        <div className="mt-0.5 text-xs text-slate-500">{p.description}</div>
-                      )}
+                    <div className="flex items-center gap-3">
+                      <div className={`h-2 w-2 rounded-full ${isVault ? 'bg-emerald-400' : 'bg-violet-400'}`} />
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">{p.name}</div>
+                        {p.description && (
+                          <div className="mt-0.5 text-xs text-slate-500">{p.description}</div>
+                        )}
+                      </div>
                     </div>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400">
                       <path d="M9 18l6-6-6-6" />

@@ -19,6 +19,7 @@ export function EnvironmentDetailPage() {
   const [secrets, setSecrets] = useState<Secret[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedRun, setCopiedRun] = useState(false)
 
   // Add secret
   const [showAdd, setShowAdd] = useState(false)
@@ -82,14 +83,27 @@ export function EnvironmentDetailPage() {
     loadSecrets()
   }, [envId, loadSecrets])
 
-  const cliCommand = env
+  const isVault = env?.org_owner_type === 'personal'
+  const orgDisplayName = isVault ? 'My Vault' : env?.org_name ?? ''
+
+  const pullCommand = env
     ? `envo pull --org "${env.org_name}" --project "${env.project_name}" --env "${env.name}"`
     : `envo pull --org "<org>" --project "<project>" --env "<env>"`
 
-  const handleCopyCmd = () => {
-    navigator.clipboard.writeText(cliCommand)
+  const runCommand = env
+    ? `envo run --org "${env.org_name}" --project "${env.project_name}" --env "${env.name}" -- <your-command>`
+    : `envo run --org "<org>" --project "<project>" --env "<env>" -- <your-command>`
+
+  const handleCopyPull = () => {
+    navigator.clipboard.writeText(pullCommand)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleCopyRun = () => {
+    navigator.clipboard.writeText(runCommand)
+    setCopiedRun(true)
+    setTimeout(() => setCopiedRun(false), 2000)
   }
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -212,11 +226,11 @@ export function EnvironmentDetailPage() {
       {/* Breadcrumbs + header */}
       <div>
         <div className="text-sm text-slate-500">
-          <Link to="/orgs" className="hover:text-slate-700">Organizations</Link>
+          <Link to="/orgs" className="hover:text-slate-700">Workspaces</Link>
           {env && (
             <>
               <span className="mx-1">/</span>
-              <Link to={`/orgs/${env.org_id}`} className="hover:text-slate-700">{env.org_name}</Link>
+              <Link to={`/orgs/${env.org_id}`} className="hover:text-slate-700">{orgDisplayName}</Link>
               <span className="mx-1">/</span>
               <Link to={`/projects/${env.project_id}`} className="hover:text-slate-700">{env.project_name}</Link>
               <span className="mx-1">/</span>
@@ -228,32 +242,52 @@ export function EnvironmentDetailPage() {
           {env ? `${env.name} — Secrets` : 'Secrets'}
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Secrets are encrypted at rest. Use the CLI command below to pull them into your project.
+          Secrets are encrypted at rest. Use the CLI commands below to pull them into your project.
         </p>
       </div>
 
-      {/* CLI command — copy-pasteable */}
-      <Card className="border-violet-100 bg-violet-50/50">
+      {/* CLI commands */}
+      <div className={`rounded-xl border p-4 space-y-3 ${isVault ? 'border-emerald-200 bg-emerald-50/40' : 'border-violet-100 bg-violet-50/50'}`}>
+        <div className={`text-[11px] font-semibold uppercase tracking-wide ${isVault ? 'text-emerald-600' : 'text-violet-600'}`}>
+          Pull secrets via CLI
+        </div>
+
+        {/* Pull command */}
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">
-            Pull secrets via CLI
-          </div>
-          <div className="mt-1.5 flex items-center gap-2 rounded-md bg-white border border-violet-200 px-3 py-2">
-            <code className="flex-1 truncate text-[13px] text-violet-900 font-mono select-all">
-              {cliCommand}
+          <div className="text-[11px] font-medium text-slate-500 mb-1">Write to .env file</div>
+          <div className={`flex items-center gap-2 rounded-md bg-white border px-3 py-2 ${isVault ? 'border-emerald-200' : 'border-violet-200'}`}>
+            <code className="flex-1 truncate text-[13px] text-slate-800 font-mono select-all">
+              {pullCommand}
             </code>
             <button
-              onClick={handleCopyCmd}
-              className="shrink-0 rounded border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors"
+              onClick={handleCopyPull}
+              className={`shrink-0 rounded border px-2.5 py-1 text-xs font-medium transition-colors ${isVault ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100'}`}
             >
               {copied ? 'Copied!' : 'Copy'}
             </button>
           </div>
-          <p className="mt-1.5 text-[11px] text-violet-500">
-            Writes <code className="font-medium">.env</code> to whichever directory your terminal is open in.
-          </p>
         </div>
-      </Card>
+
+        {/* Run command */}
+        <div>
+          <div className="text-[11px] font-medium text-slate-500 mb-1">Inject into process (never writes to disk)</div>
+          <div className={`flex items-center gap-2 rounded-md bg-white border px-3 py-2 ${isVault ? 'border-emerald-200' : 'border-violet-200'}`}>
+            <code className="flex-1 truncate text-[13px] text-slate-800 font-mono select-all">
+              {runCommand}
+            </code>
+            <button
+              onClick={handleCopyRun}
+              className={`shrink-0 rounded border px-2.5 py-1 text-xs font-medium transition-colors ${isVault ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100'}`}
+            >
+              {copiedRun ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        <p className={`text-[11px] ${isVault ? 'text-emerald-500' : 'text-violet-500'}`}>
+          Install the CLI: <code className="font-medium">go install github.com/envo/cli/cmd/envo@latest</code> or download from releases.
+        </p>
+      </div>
 
       {/* Actions */}
       <div className="flex gap-2">
@@ -322,7 +356,7 @@ export function EnvironmentDetailPage() {
                 {bulkImporting ? 'Importing...' : 'Import all'}
               </Button>
               <span className="text-xs text-slate-400">
-                Lines starting with # are ignored
+                Lines starting with # are ignored. Duplicate keys will be updated.
               </span>
             </div>
           </form>
@@ -365,8 +399,8 @@ export function EnvironmentDetailPage() {
           </div>
         ) : secrets.length === 0 ? (
           <div className="py-10 text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-400">
+            <div className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full ${isVault ? 'bg-emerald-100' : 'bg-slate-100'}`}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={isVault ? 'text-emerald-500' : 'text-slate-400'}>
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>

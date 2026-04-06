@@ -314,6 +314,7 @@ export type EnvironmentDetail = {
   project_name: string
   org_id: string
   org_name: string
+  org_owner_type?: OwnerType
 }
 
 export async function getEnvironment(envId: string): Promise<EnvironmentDetail> {

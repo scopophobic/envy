@@ -4,9 +4,11 @@ import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import {
   createEnvironment,
+  getOrg,
   getProject,
   listProjectEnvironments,
   type Environment,
+  type OrgDetail,
   type Project,
 } from '../lib/api'
 
@@ -14,6 +16,7 @@ export function ProjectDetailPage() {
   const { id } = useParams()
   const nav = useNavigate()
   const [project, setProject] = useState<Project | null>(null)
+  const [org, setOrg] = useState<OrgDetail | null>(null)
   const [envs, setEnvs] = useState<Environment[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -21,9 +24,15 @@ export function ProjectDetailPage() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
+  const isVault = org?.owner_type === 'personal'
+  const orgDisplayName = isVault ? 'My Vault' : (org?.name ?? 'Org')
+
   const load = useCallback(() => {
     if (!id) return
-    getProject(id).then(setProject).catch((e) => setError((e as Error).message))
+    getProject(id).then((p) => {
+      setProject(p)
+      getOrg(p.org_id).then(setOrg).catch(() => {})
+    }).catch((e) => setError((e as Error).message))
     listProjectEnvironments(id).then(setEnvs).catch(() => setEnvs([]))
   }, [id])
 
@@ -77,9 +86,9 @@ export function ProjectDetailPage() {
     <div className="space-y-6">
       <div>
         <div className="text-sm text-slate-500">
-          <Link to="/orgs" className="hover:text-slate-700">Organizations</Link>
+          <Link to="/orgs" className="hover:text-slate-700">Workspaces</Link>
           <span className="mx-1">/</span>
-          <Link to={`/orgs/${project.org_id}`} className="hover:text-slate-700">Org</Link>
+          <Link to={`/orgs/${project.org_id}`} className="hover:text-slate-700">{orgDisplayName}</Link>
           <span className="mx-1">/</span>
           <span className="font-medium text-slate-900">{project.name}</span>
         </div>

@@ -92,13 +92,23 @@ export function Layout() {
                   >
                     {currentOrg ? (
                       <>
-                        <span className="flex h-5 w-5 items-center justify-center rounded bg-violet-100 text-[10px] font-semibold text-violet-600">
-                          {currentOrg.name[0]?.toUpperCase()}
+                        {currentOrg.owner_type === 'personal' ? (
+                          <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-emerald-600">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            </svg>
+                          </span>
+                        ) : (
+                          <span className="flex h-5 w-5 items-center justify-center rounded bg-violet-100 text-[10px] font-semibold text-violet-600">
+                            {currentOrg.name[0]?.toUpperCase()}
+                          </span>
+                        )}
+                        <span className="max-w-[120px] truncate font-medium">
+                          {currentOrg.owner_type === 'personal' ? 'My Vault' : currentOrg.name}
                         </span>
-                        <span className="max-w-[120px] truncate font-medium">{currentOrg.name}</span>
                       </>
                     ) : (
-                      <span className="text-slate-500">Select org</span>
+                      <span className="text-slate-500">Select workspace</span>
                     )}
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400">
                       <path d="M6 9l6 6 6-6" />
@@ -108,21 +118,22 @@ export function Layout() {
                     <div className="absolute left-0 top-full mt-1 w-60 rounded-lg border border-slate-200 bg-white py-1 shadow-lg z-50">
                       {orgs.some(o => o.owner_type === 'personal') && (
                         <>
-                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Personal</div>
                           {orgs.filter(o => o.owner_type === 'personal').map(o => (
                             <Link
                               key={o.id}
                               to={`/orgs/${o.id}`}
                               onClick={() => setOrgDropdownOpen(false)}
                               className={cn(
-                                'flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 transition-colors',
-                                o.id === currentOrgId ? 'bg-slate-50 font-medium text-slate-900' : 'text-slate-600',
+                                'flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-emerald-50/50 transition-colors',
+                                o.id === currentOrgId ? 'bg-emerald-50/60 font-medium text-slate-900' : 'text-slate-600',
                               )}
                             >
-                              <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-[10px] font-semibold text-emerald-600">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                              <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-emerald-600 shrink-0">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                </svg>
                               </span>
-                              <span className="truncate">{o.name}</span>
+                              <span className="truncate font-medium">My Vault</span>
                               {o.id === currentOrgId && (
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="ml-auto text-emerald-600 shrink-0">
                                   <polyline points="20 6 9 17 4 12" />
@@ -134,7 +145,8 @@ export function Layout() {
                       )}
                       {orgs.some(o => o.owner_type !== 'personal') && (
                         <>
-                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Organizations</div>
+                          <div className="border-t border-slate-100 mt-1 pt-1" />
+                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Teams</div>
                           {orgs.filter(o => o.owner_type !== 'personal').map(o => (
                             <Link
                               key={o.id}
@@ -165,8 +177,8 @@ export function Layout() {
                           className="flex items-center gap-2 px-3 py-2 text-sm text-slate-500 hover:bg-slate-50 transition-colors"
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400">
-                            <line x1="12" y1="5" x2="12" y2="19" />
-                            <line x1="5" y1="12" x2="19" y2="12" />
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M3 12h6m6 0h6" />
                           </svg>
                           All workspaces
                         </Link>
