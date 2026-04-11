@@ -6,3 +6,4 @@ cli/dist/
 
 .env.production
 .env.production.example
+.env

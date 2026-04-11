@@ -156,12 +156,14 @@ Then create a GitHub Release and attach these files. Users download the right on
 If the repo is public on GitHub:
 
 ```bash
-go install github.com/yourusername/envo/cli/cmd/envo@latest
+go install github.com/envo/cli/cmd/envo@latest
 ```
 
 This puts `envo` in `$GOPATH/bin` or `$HOME/go/bin`. Users need Go installed.
 
 ---
 
-## Summary- **“envo is unknown”** means the shell can’t find an `envo` executable. Build with `go build -o envo.exe ./cmd/envo` (or `-o envo` on macOS/Linux), then run `.\envo.exe` / `./envo` from that folder or add that folder to PATH.
+## Summary
+
+- **“envo is unknown”** means the shell can’t find an `envo` executable. Build with `go build -o envo.exe ./cmd/envo` (or `-o envo` on macOS/Linux), then run `.\envo.exe` / `./envo` from that folder or add that folder to PATH.
 - **Publishing:** build binaries for each OS/arch, upload to GitHub Releases, then optionally add package managers or `go install` so users can install the CLI easily.

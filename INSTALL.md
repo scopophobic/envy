@@ -10,6 +10,21 @@ One command to install. Works on macOS, Linux, and Windows.
 curl -fsSL https://raw.githubusercontent.com/scopophobic/envy/main/install.sh | sh
 ```
 
+If `/usr/local/bin` is not writable (common on macOS), the script installs to **`~/.local/bin`** and **appends one marked block** to your shell config (usually `~/.zshrc` on Mac, or `~/.bashrc` on Linux) so `envo` works after a **new terminal** or `source ~/.zshrc`. You can remove the block later — it starts with `# Added by Envo CLI installer`.
+
+To **only** install the binary and configure PATH yourself:
+
+```bash
+ENVO_INSTALL_NO_PATH=1 curl -fsSL https://raw.githubusercontent.com/scopophobic/envy/main/install.sh | sh
+```
+
+To use `/usr/local/bin` instead (often already on `PATH`), create it once with admin rights, then re-run the installer:
+
+```bash
+sudo mkdir -p /usr/local/bin
+sudo chown "$(whoami)" /usr/local/bin
+```
+
 ## Windows — PowerShell
 
 ```powershell

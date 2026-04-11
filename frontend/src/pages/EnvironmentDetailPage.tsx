@@ -285,7 +285,13 @@ export function EnvironmentDetailPage() {
         </div>
 
         <p className={`text-[11px] ${isVault ? 'text-emerald-500' : 'text-violet-500'}`}>
-          Install the CLI: <code className="font-medium">go install github.com/envo/cli/cmd/envo@latest</code> or download from releases.
+          Don&apos;t have the CLI?{' '}
+          <Link to="/#install-cli" className="font-medium underline underline-offset-2 hover:opacity-90">
+            Install envo
+          </Link>
+          {' '}(curl, PowerShell, or{' '}
+          <code className="font-medium">go install github.com/envo/cli/cmd/envo@latest</code>
+          ).
         </p>
       </div>
 

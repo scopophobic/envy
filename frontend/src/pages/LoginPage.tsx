@@ -67,6 +67,10 @@ export function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-400">
+          <Link to="/#install-cli" className="text-slate-500 underline underline-offset-2 hover:text-slate-700">
+            Install the CLI
+          </Link>
+          <span className="mx-2 text-slate-300">·</span>
           Encrypted &middot; Secure &middot; Team-ready
         </p>
       </div>

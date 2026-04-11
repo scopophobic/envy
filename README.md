@@ -30,6 +30,89 @@ envo/
 
 **CLI** — `envo login` authenticates via browser OAuth. `envo pull` decrypts and writes secrets to `.env` in the current directory.
 
+## Install the CLI
+
+Use the **Envo CLI** to sign in and pull secrets into your project. Binaries are published on [GitHub Releases](https://github.com/scopophobic/envy/releases) (via GoReleaser when you push a `v*` tag).
+
+### One-line install (recommended)
+
+**macOS / Linux**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/scopophobic/envy/main/install.sh | sh
+```
+
+When the binary goes to `~/.local/bin` (typical on macOS), the script **adds that directory to your PATH** in `~/.zshrc` or `~/.bashrc` (one marked block). Open a **new terminal** (or `source ~/.zshrc`), then run `envo`. To skip editing shell config: `ENVO_INSTALL_NO_PATH=1` before `curl` (see [`INSTALL.md`](INSTALL.md)).
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/scopophobic/envy/main/install.ps1 | iex
+```
+
+If PowerShell blocks the script, run once:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+**Windows (Git Bash)** — same shell script as macOS/Linux; installs to `~/bin/envo.exe` and updates `~/.bashrc` for PATH when needed.
+
+### Install with Go
+
+Requires Go 1.25+:
+
+```bash
+go install github.com/envo/cli/cmd/envo@latest
+```
+
+Ensure `$GOPATH/bin` or `$HOME/go/bin` is on your `PATH`.
+
+### Point the CLI at your API
+
+By default the CLI uses `http://localhost:8080`. For a hosted Envo instance:
+
+```bash
+export ENVO_API_URL=https://api.your-domain.com
+# or per command:
+envo --api https://api.your-domain.com login
+```
+
+Use the same host style as your backend’s Google OAuth redirect URL (`localhost` vs `127.0.0.1` must stay consistent).
+
+### After install
+
+```bash
+envo login
+envo whoami
+envo pull --org "My Org" --project "api" --env "development"
+envo run --org "My Org" --project "api" --env "development" -- npm start
+```
+
+| Command | What it does |
+|--------|----------------|
+| `envo login` | Opens the browser; sign in with Google |
+| `envo logout` | Clears saved tokens |
+| `envo whoami` | Shows current user |
+| `envo pull --org … --project … --env …` | Writes secrets to `.env` in the current directory |
+| `envo run … -- <command>` | Runs a command with secrets in the environment (nothing written to disk) |
+
+More detail: [`INSTALL.md`](INSTALL.md) (install scripts), [`cli/README.md`](cli/README.md) (build from source, token paths).
+
+### From this repo (contributors)
+
+Without a release binary, from the **repository root**:
+
+- **macOS / Linux:** `chmod +x envo && ./envo login` (wrapper runs Go)
+- **Windows:** `.\envo.cmd login`
+
+Or build once:
+
+```bash
+cd cli && go build -o envo ./cmd/envo
+./envo login   # from cli/
+```
+
 ## Features
 
 - **End-to-end encryption** — AES-256-GCM with AWS KMS envelope encryption (falls back to local encryption in dev)
@@ -79,10 +162,12 @@ Opens at `http://localhost:5173`.
 
 ### 4. CLI
 
+With the API running locally, install the CLI using [Install the CLI](#install-the-cli) (e.g. `go install …` or `./envo` from the repo root), then:
+
 ```bash
-# From the project root
-./envo login
-./envo pull --org "My Org" --project "api" --env "production"
+export ENVO_API_URL=http://localhost:8080   # optional; this is the default
+envo login
+envo pull --org "My Org" --project "api" --env "production"
 ```
 
 ## Production Deployment (AWS EC2)
