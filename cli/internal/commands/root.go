@@ -48,6 +48,7 @@ func newRootCmd() (*cobra.Command, *rootDeps) {
 	cmd.AddCommand(newWhoamiCmd(deps))
 	cmd.AddCommand(newPullCmd(deps))
 	cmd.AddCommand(newRunCmd(deps))
+	cmd.AddCommand(newSyncCmd(deps))
 
 	return cmd, deps
 }
@@ -60,4 +61,3 @@ func Execute() int {
 	}
 	return 0
 }
-

@@ -299,3 +299,44 @@ func (c *Client) ExportEnvironmentSecrets(ctx context.Context, envID string) (ma
 	return out.Secrets, nil
 }
 
+type PlatformConnection struct {
+	ID          string `json:"id"`
+	Platform    string `json:"platform"`
+	Name        string `json:"name"`
+	TokenPrefix string `json:"token_prefix"`
+}
+
+func (c *Client) ListPlatformConnections(ctx context.Context) ([]PlatformConnection, error) {
+	if _, err := c.EnsureAccessToken(ctx); err != nil {
+		return nil, err
+	}
+	var out []PlatformConnection
+	_, err := c.do(ctx, http.MethodGet, "/api/v1/platforms", nil, &out, true)
+	return out, err
+}
+
+type SyncEnvironmentReq struct {
+	PlatformConnectionID string `json:"platform_connection_id"`
+	TargetProjectID      string `json:"target_project_id"`
+	TargetEnvironment    string `json:"target_environment"`
+}
+
+type SyncEnvironmentResp struct {
+	Platform       string `json:"platform"`
+	ConnectionName string `json:"connection_name"`
+	TargetProject  string `json:"target_project_id"`
+	TargetEnv      string `json:"target_environment"`
+	Synced         int    `json:"synced"`
+}
+
+func (c *Client) SyncEnvironment(ctx context.Context, envID string, req SyncEnvironmentReq) (*SyncEnvironmentResp, error) {
+	if _, err := c.EnsureAccessToken(ctx); err != nil {
+		return nil, err
+	}
+	var out SyncEnvironmentResp
+	_, err := c.do(ctx, http.MethodPost, "/api/v1/environments/"+envID+"/sync", req, &out, true)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
