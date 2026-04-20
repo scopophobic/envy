@@ -17,6 +17,7 @@ func AllModels() []interface{} {
 		&Project{},
 		&Environment{},
 		&Secret{},
+		&PlatformConnection{},
 		&TierLimit{},
 		&AuditLog{},
 		&RefreshToken{},

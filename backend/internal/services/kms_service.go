@@ -52,10 +52,13 @@ func NewKMSService(cfg *config.Config) (*KMSService, error) {
 // Encrypt encrypts plaintext using envelope encryption.
 // workspaceID is accepted for interface conformance; KMS uses its own key hierarchy.
 func (s *KMSService) Encrypt(ctx context.Context, plaintext string, workspaceID string) (string, error) {
+	encCtx := kmsContext(workspaceID)
+
 	// Step 1: Generate a data key from KMS
 	dataKeyOutput, err := s.client.GenerateDataKey(ctx, &kms.GenerateDataKeyInput{
-		KeyId:   aws.String(s.keyID),
-		KeySpec: "AES_256",
+		KeyId:             aws.String(s.keyID),
+		KeySpec:           "AES_256",
+		EncryptionContext: encCtx,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to generate data key: %w", err)
@@ -78,8 +81,8 @@ func (s *KMSService) Encrypt(ctx context.Context, plaintext string, workspaceID 
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// Encrypt the plaintext
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	// Encrypt the plaintext (workspace-bound associated data).
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), []byte(workspaceID))
 
 	// Step 3: Encode encrypted data key and ciphertext
 	encryptedDataKey := base64.StdEncoding.EncodeToString(dataKeyOutput.CiphertextBlob)
@@ -116,8 +119,15 @@ func (s *KMSService) Decrypt(ctx context.Context, encryptedData string, workspac
 
 	// Step 1: Decrypt the data key using KMS
 	decryptOutput, err := s.client.Decrypt(ctx, &kms.DecryptInput{
-		CiphertextBlob: encryptedKeyBytes,
+		CiphertextBlob:    encryptedKeyBytes,
+		EncryptionContext: kmsContext(workspaceID),
 	})
+	if err != nil {
+		// Backward-compat for old data keys encrypted without KMS encryption context.
+		decryptOutput, err = s.client.Decrypt(ctx, &kms.DecryptInput{
+			CiphertextBlob: encryptedKeyBytes,
+		})
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt data key: %w", err)
 	}
@@ -141,8 +151,11 @@ func (s *KMSService) Decrypt(ctx context.Context, encryptedData string, workspac
 
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 
-	// Decrypt
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	// Decrypt (first with workspace AAD, then legacy without AAD for compatibility).
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, []byte(workspaceID))
+	if err != nil {
+		plaintext, err = gcm.Open(nil, nonce, ciphertext, nil)
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt: %w", err)
 	}
@@ -164,4 +177,14 @@ func (s *KMSService) TestConnection(ctx context.Context) error {
 		return fmt.Errorf("failed to describe KMS key: %w", err)
 	}
 	return nil
+}
+
+func kmsContext(workspaceID string) map[string]string {
+	ctx := map[string]string{
+		"service": "envo",
+	}
+	if ws := strings.TrimSpace(workspaceID); ws != "" {
+		ctx["workspace_id"] = ws
+	}
+	return ctx
 }

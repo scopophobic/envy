@@ -15,13 +15,15 @@ import (
 type EnvironmentHandler struct {
 	envService     *services.EnvironmentService
 	projectService *services.ProjectService
+	tierService    *services.TierService
 }
 
 // NewEnvironmentHandler creates a new environment handler
-func NewEnvironmentHandler(envService *services.EnvironmentService, projectService *services.ProjectService) *EnvironmentHandler {
+func NewEnvironmentHandler(envService *services.EnvironmentService, projectService *services.ProjectService, tierService *services.TierService) *EnvironmentHandler {
 	return &EnvironmentHandler{
 		envService:     envService,
 		projectService: projectService,
+		tierService:    tierService,
 	}
 }
 
@@ -109,6 +111,16 @@ func (h *EnvironmentHandler) CreateEnvironment(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request", "details": err.Error()})
+		return
+	}
+
+	canCreate, err := h.tierService.CanCreateEnvironment(projectID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check environment limits"})
+		return
+	}
+	if !canCreate {
+		c.JSON(http.StatusForbidden, gin.H{"error": "environment limit reached for this workspace"})
 		return
 	}
 
@@ -215,4 +227,3 @@ func (h *EnvironmentHandler) DeleteEnvironment(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Environment deleted successfully"})
 }
-

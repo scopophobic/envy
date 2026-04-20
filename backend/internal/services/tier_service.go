@@ -11,6 +11,15 @@ import (
 // TierService handles tier limit enforcement
 type TierService struct{}
 
+const (
+	personalMaxProjects = 10
+	personalMaxEnvs     = 20
+
+	orgMaxProjects = 2
+	orgMaxMembers  = 2
+	orgMaxEnvs     = 10
+)
+
 // NewTierService creates a new tier service
 func NewTierService() *TierService {
 	return &TierService{}
@@ -69,13 +78,12 @@ func (s *TierService) CanInviteMember(orgID uuid.UUID) (bool, error) {
 		return false, err
 	}
 
-	// Get max devs limit for owner's tier
-	maxDevs, err := s.GetLimit(org.Owner.SubscriptionTier, models.LimitTypeMaxDevs)
-	if err != nil {
-		return false, err
+	// Personal vaults don't support team member invites.
+	if org.OwnerType == models.OwnerTypePersonal {
+		return false, nil
 	}
-
-	// Unlimited
+	// Team org policy: 2 members max.
+	maxDevs := orgMaxMembers
 	if maxDevs == models.UnlimitedValue {
 		return true, nil
 	}
@@ -99,10 +107,9 @@ func (s *TierService) CanCreateProject(orgID uuid.UUID) (bool, error) {
 		return false, err
 	}
 
-	// Get max projects limit for owner's tier
-	maxProjects, err := s.GetLimit(org.Owner.SubscriptionTier, models.LimitTypeMaxProjects)
-	if err != nil {
-		return false, err
+	maxProjects := orgMaxProjects
+	if org.OwnerType == models.OwnerTypePersonal {
+		maxProjects = personalMaxProjects
 	}
 
 	// Unlimited
@@ -121,30 +128,34 @@ func (s *TierService) CanCreateProject(orgID uuid.UUID) (bool, error) {
 
 // CanCreateSecret checks if environment can have more secrets
 func (s *TierService) CanCreateSecret(envID uuid.UUID) (bool, error) {
+	// Current workspace policy: unlimited secrets for personal and org workspaces.
+	return true, nil
+}
+
+// CanCreateEnvironment checks if a workspace can have more environments.
+func (s *TierService) CanCreateEnvironment(projectID uuid.UUID) (bool, error) {
 	db := database.GetDB()
 
-	// Get environment with project and organization
-	var env models.Environment
-	if err := db.Preload("Project.Organization.Owner").First(&env, envID).Error; err != nil {
+	var project models.Project
+	if err := db.Preload("Organization").First(&project, projectID).Error; err != nil {
 		return false, err
 	}
 
-	// Get max secrets limit for owner's tier
-	maxSecrets, err := s.GetLimit(env.Project.Organization.Owner.SubscriptionTier, models.LimitTypeMaxSecretsPerEnv)
-	if err != nil {
-		return false, err
+	maxEnvs := orgMaxEnvs
+	if project.Organization.OwnerType == models.OwnerTypePersonal {
+		maxEnvs = personalMaxEnvs
 	}
-
-	// Unlimited
-	if maxSecrets == models.UnlimitedValue {
+	if maxEnvs == models.UnlimitedValue {
 		return true, nil
 	}
 
-	// Count environment secrets
 	var count int64
-	if err := db.Model(&models.Secret{}).Where("environment_id = ?", envID).Count(&count).Error; err != nil {
+	err := db.Model(&models.Environment{}).
+		Joins("JOIN projects ON projects.id = environments.project_id").
+		Where("projects.org_id = ?", project.OrgID).
+		Count(&count).Error
+	if err != nil {
 		return false, err
 	}
-
-	return int(count) < maxSecrets, nil
+	return int(count) < maxEnvs, nil
 }

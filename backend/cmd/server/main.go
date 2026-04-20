@@ -110,8 +110,11 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService, tierService, cfg.FrontendURL)
 	orgHandler := handlers.NewOrgHandler(orgService)
 	projectHandler := handlers.NewProjectHandler(projectService)
-	envHandler := handlers.NewEnvironmentHandler(envService, projectService)
-	secretHandler := handlers.NewSecretHandler(services.NewSecretService(encryptor, localEncryptor, tierService, auditService))
+	envHandler := handlers.NewEnvironmentHandler(envService, projectService, tierService)
+	secretService := services.NewSecretService(encryptor, localEncryptor, tierService, auditService)
+	secretHandler := handlers.NewSecretHandler(secretService)
+	platformService := services.NewPlatformService(encryptor, localEncryptor, secretService)
+	platformHandler := handlers.NewPlatformHandler(platformService)
 	auditHandler := handlers.NewAuditHandler(auditService)
 
 	// Set Gin mode
@@ -201,6 +204,12 @@ func main() {
 
 			// Secrets export for CLI
 			protected.GET("/environments/:id/secrets/export", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ExportEnvironmentSecrets)
+			protected.POST("/environments/:id/sync", middleware.RequirePermission(models.PermissionSecretsRead), platformHandler.SyncEnvironment)
+
+			// Deployment platform connections
+			protected.GET("/platforms", platformHandler.ListConnections)
+			protected.POST("/platforms", platformHandler.CreateConnection)
+			protected.DELETE("/platforms/:id", platformHandler.DeleteConnection)
 
 			// Audit logs
 			protected.GET("/orgs/:id/audit-logs", middleware.RequirePermission(models.PermissionAuditView), auditHandler.ListOrgAuditLogs)
@@ -234,4 +243,3 @@ func main() {
 		log.Fatalf("❌ Failed to start server: %v", err)
 	}
 }
-

@@ -64,7 +64,8 @@ func (s *LocalEncryptionService) Encrypt(_ context.Context, plaintext string, wo
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	aad := []byte(workspaceID)
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), aad)
 	return "local:" + base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
@@ -88,6 +89,13 @@ func (s *LocalEncryptionService) Decrypt(_ context.Context, encryptedData string
 		}
 	}
 
+	// Backward-compat fallback for old values that didn't bind workspace as AAD.
+	if workspaceID != "" {
+		if plain, err := s.decryptWithKeyLegacy(ciphertext, workspaceID); err == nil {
+			return plain, nil
+		}
+	}
+
 	// Fallback: legacy global key (empty workspace ID derives from masterKey directly)
 	if plain, err := s.decryptRaw(ciphertext, s.masterKey); err == nil {
 		return plain, nil
@@ -101,10 +109,22 @@ func (s *LocalEncryptionService) decryptWithKey(ciphertext []byte, workspaceID s
 	if err != nil {
 		return "", err
 	}
+	return s.decryptRawWithAAD(ciphertext, key, []byte(workspaceID))
+}
+
+func (s *LocalEncryptionService) decryptWithKeyLegacy(ciphertext []byte, workspaceID string) (string, error) {
+	key, err := s.workspaceKey(workspaceID)
+	if err != nil {
+		return "", err
+	}
 	return s.decryptRaw(ciphertext, key)
 }
 
 func (s *LocalEncryptionService) decryptRaw(ciphertext []byte, key []byte) (string, error) {
+	return s.decryptRawWithAAD(ciphertext, key, nil)
+}
+
+func (s *LocalEncryptionService) decryptRawWithAAD(ciphertext []byte, key []byte, aad []byte) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
@@ -121,7 +141,7 @@ func (s *LocalEncryptionService) decryptRaw(ciphertext []byte, key []byte) (stri
 	}
 
 	nonce, ct := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ct, nil)
+	plaintext, err := gcm.Open(nil, nonce, ct, aad)
 	if err != nil {
 		return "", err
 	}
