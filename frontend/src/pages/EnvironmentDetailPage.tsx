@@ -6,10 +6,13 @@ import {
   createSecret,
   deleteSecret,
   getEnvironment,
+  listPlatformConnections,
   listSecrets,
   purgeSecret,
+  syncEnvironmentToPlatform,
   updateSecret,
   type EnvironmentDetail,
+  type PlatformConnection,
   type Secret,
 } from '../lib/api'
 
@@ -49,6 +52,14 @@ export function EnvironmentDetailPage() {
     setTimeout(() => setToast(null), 3000)
   }
 
+  // Manual deployment sync
+  const [connections, setConnections] = useState<PlatformConnection[]>([])
+  const [selectedConnection, setSelectedConnection] = useState('')
+  const [targetProjectId, setTargetProjectId] = useState('')
+  const [targetEnvironment, setTargetEnvironment] = useState('production')
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -81,7 +92,15 @@ export function EnvironmentDetailPage() {
     if (!envId) return
     getEnvironment(envId).then(setEnv).catch(() => {})
     loadSecrets()
-  }, [envId, loadSecrets])
+    listPlatformConnections()
+      .then((rows) => {
+        setConnections(rows)
+        if (!selectedConnection && rows.length > 0) {
+          setSelectedConnection(rows[0].id)
+        }
+      })
+      .catch(() => {})
+  }, [envId, loadSecrets, selectedConnection])
 
   const isVault = env?.org_owner_type === 'personal'
   const orgDisplayName = isVault ? 'My Vault' : env?.org_name ?? ''
@@ -212,6 +231,25 @@ export function EnvironmentDetailPage() {
     loadSecrets()
   }
 
+  const handleManualSync = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!envId || !selectedConnection || !targetProjectId.trim() || !targetEnvironment.trim()) return
+    setSyncError(null)
+    setSyncing(true)
+    try {
+      const result = await syncEnvironmentToPlatform(envId, {
+        platform_connection_id: selectedConnection,
+        target_project_id: targetProjectId.trim(),
+        target_environment: targetEnvironment.trim(),
+      })
+      showToast(`Synced ${result.synced} secrets to ${result.platform} (${result.target_environment})`)
+    } catch (err) {
+      setSyncError((err as Error).message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   if (error) return <p className="text-sm text-red-600 p-6">{error}</p>
 
   return (
@@ -294,6 +332,71 @@ export function EnvironmentDetailPage() {
           ).
         </p>
       </div>
+
+      {/* Manual platform sync */}
+      <Card>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Deployment Platform Sync</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Manual trigger only. Envo remains the source of truth; push this environment to your deploy platform when you choose.
+            </p>
+          </div>
+          <Link to="/settings" className="text-xs text-violet-600 hover:text-violet-700 underline underline-offset-2">
+            Manage connections
+          </Link>
+        </div>
+
+        {connections.length === 0 ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            No deployment connection found. Add one in Settings → Deployment.
+          </div>
+        ) : (
+          <form onSubmit={handleManualSync} className="grid gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-500">Connection</span>
+              <select
+                value={selectedConnection}
+                onChange={(e) => setSelectedConnection(e.target.value)}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400"
+              >
+                {connections.map((conn) => (
+                  <option key={conn.id} value={conn.id}>
+                    {conn.name} ({conn.platform})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-500">Target project ID</span>
+              <input
+                value={targetProjectId}
+                onChange={(e) => setTargetProjectId(e.target.value)}
+                placeholder="prj_xxxxx"
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-mono focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-slate-500">Target environment</span>
+              <select
+                value={targetEnvironment}
+                onChange={(e) => setTargetEnvironment(e.target.value)}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400"
+              >
+                <option value="production">production</option>
+                <option value="preview">preview</option>
+                <option value="development">development</option>
+              </select>
+            </label>
+            <div className="sm:col-span-3">
+              <Button type="submit" disabled={syncing || !selectedConnection || !targetProjectId.trim()}>
+                {syncing ? 'Syncing...' : 'Sync now'}
+              </Button>
+            </div>
+          </form>
+        )}
+        {syncError && <p className="mt-3 text-sm text-red-600">{syncError}</p>}
+      </Card>
 
       {/* Actions */}
       <div className="flex gap-2">

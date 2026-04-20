@@ -92,8 +92,8 @@ export function LandingPage() {
 
         {/* Subheading */}
         <p className="mx-auto mt-6 max-w-md text-base text-slate-500 leading-relaxed sm:text-lg">
-          Secure environment variables for your team.
-          One command to pull, zero chance of leaking.
+          Personal vault + team workspaces with clear limits.
+          One command to pull, one manual click to sync to deployment platforms.
         </p>
 
         {/* CTA */}
@@ -130,6 +130,9 @@ export function LandingPage() {
                 <span className="text-green-400">$</span> envo pull --org &quot;My Vault&quot; --project api --env dev
               </div>
               <div className="mt-1 text-emerald-400">Wrote 12 secrets to .env</div>
+              <div className="mt-3 text-slate-400">
+                <span className="text-green-400">$</span> envo sync --org &quot;My Vault&quot; --project api --env prod --connection vercel-main --target-project prj_xxx --target-env production
+              </div>
             </div>
           </div>
         </div>
@@ -199,8 +202,8 @@ export function LandingPage() {
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                 </svg>
               ),
-              title: 'Team access control',
-              desc: 'Role-based permissions, audit logs, and org-level controls for your entire team.',
+              title: 'Workspace-first limits',
+              desc: 'My Vault: 10 projects, 20 envs, unlimited secrets. Team orgs: 2 projects, 2 members, 10 envs, unlimited secrets.',
             },
           ].map((f, i) => (
             <div key={i} className="rounded-xl border border-slate-200/80 bg-white/50 p-5 text-center backdrop-blur-sm">

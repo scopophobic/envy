@@ -369,6 +369,59 @@ export async function exportSecrets(envId: string): Promise<ExportedSecrets> {
   return request<ExportedSecrets>(`/api/v1/environments/${envId}/secrets/export`, { auth: true })
 }
 
+// ── Deploy Platform Connections & Manual Sync ────────────────────────
+
+export type PlatformConnection = {
+  id: string
+  platform: string
+  name: string
+  token_prefix: string
+  metadata?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export async function listPlatformConnections(): Promise<PlatformConnection[]> {
+  return request<PlatformConnection[]>('/api/v1/platforms', { auth: true })
+}
+
+export async function createPlatformConnection(payload: {
+  platform: string
+  name?: string
+  token: string
+  metadata?: Record<string, unknown>
+}): Promise<PlatformConnection> {
+  return request<PlatformConnection>('/api/v1/platforms', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deletePlatformConnection(connectionId: string): Promise<void> {
+  await request(`/api/v1/platforms/${connectionId}`, { method: 'DELETE', auth: true })
+}
+
+export type EnvironmentSyncResult = {
+  platform: string
+  connection_name: string
+  target_project_id: string
+  target_environment: string
+  synced: number
+}
+
+export async function syncEnvironmentToPlatform(envId: string, payload: {
+  platform_connection_id: string
+  target_project_id: string
+  target_environment: string
+}): Promise<EnvironmentSyncResult> {
+  return request<EnvironmentSyncResult>(`/api/v1/environments/${envId}/sync`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(payload),
+  })
+}
+
 // ── Audit Logs ───────────────────────────────────────────────────────
 
 export type AuditLog = {

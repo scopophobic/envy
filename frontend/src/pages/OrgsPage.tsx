@@ -116,19 +116,21 @@ export function OrgsPage() {
             </div>
 
             {/* Quick stats */}
-            <div className="mt-5 grid grid-cols-3 gap-3">
+            <div className="mt-5 grid grid-cols-4 gap-3">
               <div className="rounded-lg bg-white/80 border border-emerald-100 px-3 py-2.5">
                 <div className="text-lg font-bold text-slate-900">{vaultProjects?.length ?? '—'}</div>
                 <div className="text-[11px] text-slate-500 font-medium">Projects</div>
+              </div>
+              <div className="rounded-lg bg-white/80 border border-emerald-100 px-3 py-2.5">
+                <div className="text-lg font-bold text-slate-900">20</div>
+                <div className="text-[11px] text-slate-500 font-medium">Env limit</div>
               </div>
               <div className="rounded-lg bg-white/80 border border-emerald-100 px-3 py-2.5">
                 <div className="text-lg font-bold text-slate-900">{vaultUsage?.secrets ?? '—'}</div>
                 <div className="text-[11px] text-slate-500 font-medium">Secrets</div>
               </div>
               <div className="rounded-lg bg-white/80 border border-emerald-100 px-3 py-2.5">
-                <div className="text-lg font-bold text-slate-900">
-                  {tierInfo ? (tierInfo.limits.max_secrets_per_env === -1 ? '∞' : tierInfo.limits.max_secrets_per_env) : '—'}
-                </div>
+                <div className="text-lg font-bold text-slate-900">∞</div>
                 <div className="text-[11px] text-slate-500 font-medium">Secrets limit / env</div>
               </div>
             </div>

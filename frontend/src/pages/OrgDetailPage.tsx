@@ -5,11 +5,9 @@ import { Card } from '../components/Card'
 import {
   createProject,
   getOrg,
-  getTierInfo,
   listOrgProjects,
   type OrgDetail,
   type Project,
-  type TierInfo,
 } from '../lib/api'
 
 export function OrgDetailPage() {
@@ -17,7 +15,6 @@ export function OrgDetailPage() {
   const nav = useNavigate()
   const [org, setOrg] = useState<OrgDetail | null>(null)
   const [projects, setProjects] = useState<Project[] | null>(null)
-  const [tierInfo, setTierInfo] = useState<TierInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [projectName, setProjectName] = useState('')
@@ -25,18 +22,16 @@ export function OrgDetailPage() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  const maxProjects = tierInfo?.limits.max_projects_per_org ?? 1
-  const projectCount = projects?.length ?? 0
-  const projectLimitReached = maxProjects !== -1 && projectCount >= maxProjects
-
   const isVault = org?.owner_type === 'personal'
   const displayName = isVault ? 'My Vault' : org?.name ?? ''
+  const maxProjects = isVault ? 10 : 2
+  const projectCount = projects?.length ?? 0
+  const projectLimitReached = projectCount >= maxProjects
 
   const load = useCallback(() => {
     if (!id) return
     getOrg(id).then(setOrg).catch((e) => setError((e as Error).message))
     listOrgProjects(id).then(setProjects).catch(() => setProjects([]))
-    getTierInfo().then(setTierInfo).catch(() => {})
   }, [id])
 
   useEffect(() => { load() }, [load])
@@ -115,14 +110,9 @@ export function OrgDetailPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Projects</h2>
-            {projects && maxProjects !== -1 && (
+            {projects && (
               <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${projectLimitReached ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
                 {projectCount}/{maxProjects}
-              </span>
-            )}
-            {maxProjects === -1 && projects && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
-                {projectCount}
               </span>
             )}
           </div>
@@ -133,7 +123,7 @@ export function OrgDetailPage() {
               </Button>
             ) : (
               <span className="rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-700">
-                Project limit reached — upgrade plan
+                Project limit reached for this workspace
               </span>
             )}
           </div>
