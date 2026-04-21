@@ -12,6 +12,7 @@ const MembersPage = lazy(() => import('./pages/MembersPage').then(m => ({ defaul
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })))
 const EnvironmentDetailPage = lazy(() => import('./pages/EnvironmentDetailPage').then(m => ({ default: m.EnvironmentDetailPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const PricingPage = lazy(() => import('./pages/PricingPage').then(m => ({ default: m.PricingPage })))
 
 function PageLoader() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route
           element={

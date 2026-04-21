@@ -6,6 +6,21 @@ export function apiBaseUrl() {
   return import.meta.env.VITE_API_URL || DEFAULT_BASE
 }
 
+function formatHttpError(status: number, text: string): string {
+  const trimmed = text.trim()
+  try {
+    const j = JSON.parse(trimmed) as { message?: string; error?: string }
+    if (j.message && typeof j.message === 'string') return j.message
+    if (j.error && typeof j.error === 'string') return j.error
+  } catch {
+    /* not JSON */
+  }
+  if (status === 404) {
+    return `Not found (${status}). Check VITE_API_URL in frontend/.env.local — it must be your Go API base (e.g. http://localhost:8080), not the Vite dev server.`
+  }
+  return trimmed ? `${status}: ${trimmed.slice(0, 280)}` : `${status} ${status}`
+}
+
 // Proactively check if token expires within 60 seconds
 function isTokenExpiringSoon(): boolean {
   const token = getAccessToken()
@@ -86,7 +101,7 @@ async function request<T>(
       clearTokens()
       window.location.href = '/login'
     }
-    throw new Error(`${resp.status} ${resp.statusText}: ${text}`)
+    throw new Error(formatHttpError(resp.status, text))
   }
 
   return text ? (JSON.parse(text) as T) : (null as unknown as T)
@@ -461,4 +476,15 @@ export async function createPortalSession(): Promise<string> {
     auth: true,
   })
   return r.url
+}
+
+export type BillingStatus = {
+  checkout_enabled: boolean
+  starter_plan_ready: boolean
+  team_plan_ready: boolean
+  message?: string
+}
+
+export async function getBillingStatus(): Promise<BillingStatus> {
+  return request<BillingStatus>('/api/v1/billing/status', { auth: true })
 }

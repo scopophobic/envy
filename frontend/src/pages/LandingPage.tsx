@@ -56,6 +56,12 @@ export function LandingPage() {
           <span className="text-xl font-bold text-slate-900 tracking-tight">Envo</span>
         </div>
         <div className="flex items-center gap-4">
+          <Link
+            to="/pricing"
+            className="hidden sm:inline-flex text-sm text-slate-500 hover:text-slate-800 transition-colors"
+          >
+            Pricing
+          </Link>
           <a
             href="#install-cli"
             className="hidden sm:inline-flex text-sm text-slate-500 hover:text-slate-800 transition-colors"
@@ -104,12 +110,12 @@ export function LandingPage() {
           >
             {isLoggedIn ? 'Open Dashboard' : 'Start for Free'}
           </Link>
-          <a
-            href="#install-cli"
+          <Link
+            to="/pricing"
             className="rounded-full border border-slate-300 bg-white/80 px-8 py-3.5 text-sm font-semibold text-slate-800 hover:bg-white transition-all"
           >
-            Install CLI
-          </a>
+            See Pricing
+          </Link>
         </div>
 
         {/* Terminal preview */}
@@ -137,6 +143,22 @@ export function LandingPage() {
           </div>
         </div>
       </main>
+
+      {/* Pricing */}
+      <section id="pricing" className="relative z-10 scroll-mt-20 mx-auto max-w-5xl px-6 pb-16 text-center">
+        <h2 className="text-center text-2xl font-bold text-slate-900">Need full pricing details?</h2>
+        <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
+          View the dedicated pricing page with plan breakdowns, feature comparison, and enterprise options.
+        </p>
+        <div className="mt-6">
+          <Link
+            to="/pricing"
+            className="inline-flex rounded-full bg-slate-900 px-6 py-2.5 text-sm font-medium text-white hover:bg-slate-800 transition-colors"
+          >
+            View Pricing
+          </Link>
+        </div>
+      </section>
 
       {/* Install CLI */}
       <section id="install-cli" className="relative z-10 scroll-mt-20 mx-auto max-w-2xl px-6 pb-20">

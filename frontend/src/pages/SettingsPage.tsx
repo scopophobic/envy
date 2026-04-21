@@ -5,15 +5,18 @@ import {
   createCheckoutSession,
   deletePlatformConnection,
   createPortalSession,
+  getBillingStatus,
   getCurrentUser,
   getTierInfo,
   listOrgs,
   type Org,
   listPlatformConnections,
   type PlatformConnection,
+  type BillingStatus,
   type TierInfo,
   type User,
 } from '../lib/api'
+import { SUBSCRIPTION_PLANS } from '../lib/pricing'
 
 type Tab = 'plans' | 'deployment' | 'account'
 
@@ -84,17 +87,29 @@ export function SettingsPage() {
   const [platform, setPlatform] = useState('vercel')
   const [name, setName] = useState('')
   const [token, setToken] = useState('')
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null)
 
   const load = useCallback(() => {
     setLoadError(null)
     setLoading(true)
-    Promise.all([
-      getCurrentUser().then(setUser),
-      getTierInfo().then(setTierInfo),
-      listOrgs().then(setOrgs),
-      listPlatformConnections().then(setConnections),
+    Promise.allSettled([
+      getCurrentUser(),
+      getTierInfo(),
+      listOrgs(),
+      listPlatformConnections(),
+      getBillingStatus(),
     ])
-      .catch((e) => setLoadError((e as Error).message))
+      .then((results) => {
+        const [u, t, o, c, b] = results
+        if (u.status === 'fulfilled') setUser(u.value)
+        else setLoadError((u.reason as Error)?.message ?? 'Failed to load profile')
+        if (t.status === 'fulfilled') setTierInfo(t.value)
+        if (o.status === 'fulfilled') setOrgs(o.value)
+        if (c.status === 'fulfilled') setConnections(c.value)
+        else setConnections([])
+        if (b.status === 'fulfilled') setBillingStatus(b.value)
+        else setBillingStatus(null)
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -154,6 +169,9 @@ export function SettingsPage() {
   }
 
   const currentTier = user?.tier || 'free'
+  const checkoutOk = billingStatus?.checkout_enabled === true
+  const starterReady = billingStatus?.starter_plan_ready === true
+  const teamReady = billingStatus?.team_plan_ready === true
 
   return (
     <div className="space-y-6">
@@ -198,6 +216,81 @@ export function SettingsPage() {
 
       {tab === 'plans' && (
         <div className="space-y-8">
+          {/* Subscription pricing */}
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Plans &amp; pricing</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Prices below are for display; the amount you pay is confirmed on Razorpay. Backend must have{' '}
+              <span className="font-mono">RAZORPAY_PLAN_STARTER</span> and{' '}
+              <span className="font-mono">RAZORPAY_PLAN_TEAM</span> set to your dashboard plan IDs.
+            </p>
+            {billingStatus && !checkoutOk && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <strong className="font-medium">Checkout unavailable.</strong>{' '}
+                {billingStatus.message ?? 'Configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET on the API server and restart.'}
+              </div>
+            )}
+            {checkoutOk && (!starterReady || !teamReady) && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Missing plan ID{!starterReady && !teamReady ? 's' : ''} in the API env:{' '}
+                {!starterReady && <span className="font-mono">RAZORPAY_PLAN_STARTER</span>}
+                {!starterReady && !teamReady && ' and '}
+                {!teamReady && <span className="font-mono">RAZORPAY_PLAN_TEAM</span>}.
+              </div>
+            )}
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              {SUBSCRIPTION_PLANS.map((plan) => (
+                <div
+                  key={plan.id}
+                  className={`rounded-xl border p-5 ${
+                    plan.id === 'free'
+                      ? 'border-slate-200 bg-white'
+                      : plan.id === 'starter'
+                        ? 'border-violet-200 bg-violet-50/50'
+                        : 'border-purple-200 bg-purple-50/40'
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="text-base font-semibold text-slate-900">{plan.name}</h3>
+                    <span className="text-sm font-semibold text-slate-800">{plan.priceLine}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-600">{plan.detail}</p>
+                  <ul className="mt-3 space-y-1.5 text-xs text-slate-700">
+                    {plan.highlights.map((h) => (
+                      <li key={h} className="flex gap-2">
+                        <span className="text-emerald-600">✓</span>
+                        <span>{h}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {plan.id === 'starter' && currentTier === 'free' && (
+                    <button
+                      type="button"
+                      onClick={() => handleUpgrade('starter')}
+                      disabled={upgrading === 'starter' || !checkoutOk || !starterReady}
+                      className="mt-4 w-full rounded-lg border border-violet-300 bg-white py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {upgrading === 'starter' ? 'Redirecting…' : 'Subscribe to Starter'}
+                    </button>
+                  )}
+                  {plan.id === 'team' && (currentTier === 'free' || currentTier === 'starter') && (
+                    <button
+                      type="button"
+                      onClick={() => handleUpgrade('team')}
+                      disabled={upgrading === 'team' || !checkoutOk || !teamReady}
+                      className="mt-4 w-full rounded-lg bg-violet-600 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {upgrading === 'team' ? 'Redirecting…' : 'Subscribe to Team'}
+                    </button>
+                  )}
+                  {plan.id === 'free' && currentTier === 'free' && (
+                    <p className="mt-4 text-center text-xs font-medium text-slate-500">Current plan</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Workspace policy cards */}
           <div className="grid gap-4 sm:grid-cols-2">
             {WORKSPACE_POLICIES.map((policy) => (
@@ -228,27 +321,26 @@ export function SettingsPage() {
           </div>
 
           <Card>
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900">Billing</h3>
                 <p className="mt-1 text-xs text-slate-500">
                   Current subscription tier: <span className="font-medium capitalize">{currentTier}</span>
                 </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  API: <span className="font-mono text-slate-600">{import.meta.env.VITE_API_URL || 'http://localhost:8080 (default)'}</span>
+                  {' — '}
+                  must be your Go server (e.g. :8080), not the Vite dev port (:5173).
+                </p>
+                <p className="mt-1 text-xs text-slate-500">Use the plan cards above to start a subscription.</p>
               </div>
-              <div className="flex items-center gap-2">
-                {currentTier !== 'team' && (
-                  <button
-                    onClick={() => handleUpgrade('team')}
-                    disabled={upgrading === 'team'}
-                    className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-60"
-                  >
-                    {upgrading === 'team' ? 'Redirecting...' : 'Upgrade'}
-                  </button>
-                )}
+              <div className="flex flex-wrap items-center gap-2">
                 {currentTier !== 'free' && (
                   <button
-                    onClick={handleManageBilling}
-                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    type="button"
+                    onClick={() => void handleManageBilling()}
+                    disabled={!checkoutOk}
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Manage billing
                   </button>
