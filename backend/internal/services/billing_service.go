@@ -38,6 +38,24 @@ func (s *BillingService) CreatePortal(paymentCustomerID string) (string, error) 
 	return s.provider.CreatePortalSession(paymentCustomerID, returnURL)
 }
 
+// CreatePaymentOrder creates a Razorpay order for Standard Web Checkout (one-time payment).
+func (s *BillingService) CreatePaymentOrder(amount int64, currency, receipt string) (orderID string, respAmount int64, respCurrency string, err error) {
+	rp, ok := s.provider.(*RazorpayProvider)
+	if !ok {
+		return "", 0, "", fmt.Errorf("standard checkout is not available")
+	}
+	return rp.CreateOrder(amount, currency, receipt)
+}
+
+// VerifyStandardPayment validates the HMAC signature from the Razorpay checkout success callback.
+func (s *BillingService) VerifyStandardPayment(orderID, paymentID, signature string) error {
+	rp, ok := s.provider.(*RazorpayProvider)
+	if !ok {
+		return fmt.Errorf("standard checkout is not available")
+	}
+	return rp.VerifyStandardPaymentSignature(orderID, paymentID, signature)
+}
+
 func (s *BillingService) HandleWebhook(payload []byte, sigHeader string) error {
 	evt, err := s.provider.VerifyWebhookPayload(payload, sigHeader)
 	if err != nil {

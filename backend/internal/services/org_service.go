@@ -1,7 +1,12 @@
 package services
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/envo/backend/internal/database"
 	"github.com/envo/backend/internal/models"
@@ -12,12 +17,24 @@ import (
 // OrgService handles organization business logic
 type OrgService struct {
 	tierService *TierService
+	emailSender EmailSender
+	frontendURL string
+	inviteTTL   time.Duration
 }
 
 // NewOrgService creates a new organization service
-func NewOrgService(tierService *TierService) *OrgService {
+func NewOrgService(tierService *TierService, emailSender EmailSender, frontendURL string, inviteTTLHours int) *OrgService {
+	if inviteTTLHours <= 0 {
+		inviteTTLHours = 168
+	}
+	if emailSender == nil {
+		emailSender = &LogEmailSender{}
+	}
 	return &OrgService{
 		tierService: tierService,
+		emailSender: emailSender,
+		frontendURL: strings.TrimRight(frontendURL, "/"),
+		inviteTTL:   time.Duration(inviteTTLHours) * time.Hour,
 	}
 }
 
@@ -150,57 +167,88 @@ func (s *OrgService) DeleteOrganization(orgID uuid.UUID) error {
 	})
 }
 
-// InviteMember adds a user to an organization
-func (s *OrgService) InviteMember(orgID uuid.UUID, email string, roleName string) (*models.OrgMember, error) {
+// InviteMember creates a pending invitation and emails the recipient.
+func (s *OrgService) InviteMember(orgID uuid.UUID, invitedBy uuid.UUID, email string, roleID *uuid.UUID, roleName string) (*models.OrgInvitation, string, string, error) {
 	db := database.GetDB()
+	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+	if normalizedEmail == "" {
+		return nil, "", "", fmt.Errorf("email is required")
+	}
 
 	// Check tier limits
 	canInvite, err := s.tierService.CanInviteMember(orgID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check tier limits: %w", err)
+		return nil, "", "", fmt.Errorf("failed to check tier limits: %w", err)
 	}
 	if !canInvite {
-		return nil, fmt.Errorf("member limit reached for this organization")
+		return nil, "", "", fmt.Errorf("member limit reached for this organization")
 	}
 
-	// Find user by email
-	var user models.User
-	if err := db.Where("email = ?", email).First(&user).Error; err != nil {
-		return nil, fmt.Errorf("user not found with email: %s", email)
+	var org models.Organization
+	if err := db.First(&org, orgID).Error; err != nil {
+		return nil, "", "", fmt.Errorf("organization not found")
 	}
 
-	// Check if already a member
-	var existing models.OrgMember
-	err = db.Where("org_id = ? AND user_id = ?", orgID, user.ID).First(&existing).Error
-	if err == nil {
-		return nil, fmt.Errorf("user is already a member of this organization")
-	}
-
-	// Get role
+	// Role can be provided by id or by name
 	var role models.Role
-	if err := db.Where("name = ? AND (is_system_role = ? OR org_id = ?)", roleName, true, orgID).First(&role).Error; err != nil {
-		return nil, fmt.Errorf("role not found: %s", roleName)
+	if roleID != nil && *roleID != uuid.Nil {
+		if err := db.Where("id = ? AND (is_system_role = ? OR org_id = ?)", *roleID, true, orgID).First(&role).Error; err != nil {
+			return nil, "", "", fmt.Errorf("role not found")
+		}
+	} else {
+		if err := db.Where("name = ? AND (is_system_role = ? OR org_id = ?)", roleName, true, orgID).First(&role).Error; err != nil {
+			return nil, "", "", fmt.Errorf("role not found: %s", roleName)
+		}
 	}
 
-	// Create membership
-	member := &models.OrgMember{
-		OrgID:  orgID,
-		UserID: user.ID,
-		RoleID: role.ID,
+	// Existing member check (if account exists)
+	var existingUser models.User
+	if err := db.Where("LOWER(email) = ?", normalizedEmail).First(&existingUser).Error; err == nil {
+		var existing models.OrgMember
+		if err := db.Where("org_id = ? AND user_id = ?", orgID, existingUser.ID).First(&existing).Error; err == nil {
+			return nil, "", "", fmt.Errorf("user is already a member of this organization")
+		}
 	}
 
-	if err := db.Create(member).Error; err != nil {
-		return nil, err
+	rawToken, tokenHash, err := generateInviteToken()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to generate invite token")
 	}
 
-	// Load relationships
-	db.Preload("User").Preload("Role").First(member, member.ID)
+	invitation := &models.OrgInvitation{
+		OrgID:           orgID,
+		InvitedByUserID: invitedBy,
+		RoleID:          role.ID,
+		Email:           normalizedEmail,
+		TokenHash:       tokenHash,
+		Status:          models.InvitationPending,
+		ExpiresAt:       time.Now().Add(s.inviteTTL),
+	}
 
-	return member, nil
+	// Replace any pending invite for same org/email
+	if err := db.Where("org_id = ? AND LOWER(email) = ? AND status = ?", orgID, normalizedEmail, models.InvitationPending).
+		Delete(&models.OrgInvitation{}).Error; err != nil {
+		return nil, "", "", err
+	}
+	if err := db.Create(invitation).Error; err != nil {
+		return nil, "", "", err
+	}
+
+	var inviter models.User
+	_ = db.First(&inviter, invitedBy).Error
+	inviteURL := fmt.Sprintf("%s/invite/accept?token=%s", s.frontendURL, rawToken)
+	emailWarning := ""
+	if err := s.emailSender.SendInvite(normalizedEmail, org.Name, inviter.Name, role.Name, inviteURL); err != nil {
+		// keep invitation; allow resend from UI
+		emailWarning = fmt.Sprintf("invitation created, but email delivery failed: %v", err)
+	}
+	db.Preload("Role").Preload("InvitedBy").First(invitation, invitation.ID)
+
+	return invitation, inviteURL, emailWarning, nil
 }
 
 // UpdateMemberRole updates a member's role
-func (s *OrgService) UpdateMemberRole(memberID uuid.UUID, roleName string) (*models.OrgMember, error) {
+func (s *OrgService) UpdateMemberRole(memberID uuid.UUID, roleID *uuid.UUID, roleName string) (*models.OrgMember, error) {
 	db := database.GetDB()
 
 	var member models.OrgMember
@@ -208,10 +256,9 @@ func (s *OrgService) UpdateMemberRole(memberID uuid.UUID, roleName string) (*mod
 		return nil, err
 	}
 
-	// Get new role
-	var role models.Role
-	if err := db.Where("name = ? AND (is_system_role = ? OR org_id = ?)", roleName, true, member.OrgID).First(&role).Error; err != nil {
-		return nil, fmt.Errorf("role not found: %s", roleName)
+	role, err := s.resolveRole(member.OrgID, roleID, roleName)
+	if err != nil {
+		return nil, err
 	}
 
 	member.RoleID = role.ID
@@ -246,4 +293,316 @@ func (s *OrgService) CheckUserAccess(userID uuid.UUID, orgID uuid.UUID) (bool, e
 	}
 
 	return count > 0, nil
+}
+
+func (s *OrgService) resolveRole(orgID uuid.UUID, roleID *uuid.UUID, roleName string) (*models.Role, error) {
+	db := database.GetDB()
+	var role models.Role
+	if roleID != nil && *roleID != uuid.Nil {
+		if err := db.Where("id = ? AND (is_system_role = ? OR org_id = ?)", *roleID, true, orgID).First(&role).Error; err != nil {
+			return nil, fmt.Errorf("role not found")
+		}
+		return &role, nil
+	}
+	if strings.TrimSpace(roleName) == "" {
+		return nil, fmt.Errorf("role is required")
+	}
+	if err := db.Where("name = ? AND (is_system_role = ? OR org_id = ?)", roleName, true, orgID).First(&role).Error; err != nil {
+		return nil, fmt.Errorf("role not found: %s", roleName)
+	}
+	return &role, nil
+}
+
+func generateInviteToken() (raw string, hash string, err error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", err
+	}
+	raw = hex.EncodeToString(b)
+	sum := sha256.Sum256([]byte(raw))
+	hash = hex.EncodeToString(sum[:])
+	return raw, hash, nil
+}
+
+func invitationTokenHash(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// ListRoles returns system roles and org custom roles.
+func (s *OrgService) ListRoles(orgID uuid.UUID) ([]models.Role, error) {
+	db := database.GetDB()
+	var roles []models.Role
+	if err := db.
+		Where("is_system_role = ? OR org_id = ?", true, orgID).
+		Preload("Permissions").
+		Order("is_system_role DESC, name ASC").
+		Find(&roles).Error; err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+// CreateRole creates a custom role for the org and attaches permissions.
+func (s *OrgService) CreateRole(orgID uuid.UUID, name string, permissionNames []string) (*models.Role, error) {
+	db := database.GetDB()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("role name is required")
+	}
+	if strings.EqualFold(name, models.RoleOwner) || strings.EqualFold(name, models.RoleAdmin) ||
+		strings.EqualFold(name, models.RoleSecretManager) || strings.EqualFold(name, models.RoleDeveloper) ||
+		strings.EqualFold(name, models.RoleViewer) {
+		return nil, fmt.Errorf("role name conflicts with system role")
+	}
+	var existing models.Role
+	if err := db.Where("org_id = ? AND LOWER(name) = LOWER(?)", orgID, name).First(&existing).Error; err == nil {
+		return nil, fmt.Errorf("role already exists")
+	}
+	role := &models.Role{Name: name, OrgID: &orgID, IsSystemRole: false}
+	if err := db.Create(role).Error; err != nil {
+		return nil, err
+	}
+	if len(permissionNames) > 0 {
+		var perms []models.Permission
+		if err := db.Where("name IN ?", permissionNames).Find(&perms).Error; err != nil {
+			return nil, err
+		}
+		if err := db.Model(role).Association("Permissions").Replace(perms); err != nil {
+			return nil, err
+		}
+	}
+	if err := db.Preload("Permissions").First(role, role.ID).Error; err != nil {
+		return nil, err
+	}
+	return role, nil
+}
+
+func (s *OrgService) UpdateRole(orgID uuid.UUID, roleID uuid.UUID, name string, permissionNames []string) (*models.Role, error) {
+	db := database.GetDB()
+	var role models.Role
+	if err := db.Where("id = ? AND org_id = ?", roleID, orgID).First(&role).Error; err != nil {
+		return nil, fmt.Errorf("role not found")
+	}
+	if role.IsSystemRole {
+		return nil, fmt.Errorf("system roles cannot be modified")
+	}
+	if strings.TrimSpace(name) != "" {
+		role.Name = strings.TrimSpace(name)
+		if err := db.Save(&role).Error; err != nil {
+			return nil, err
+		}
+	}
+	var perms []models.Permission
+	if len(permissionNames) > 0 {
+		if err := db.Where("name IN ?", permissionNames).Find(&perms).Error; err != nil {
+			return nil, err
+		}
+	}
+	if err := db.Model(&role).Association("Permissions").Replace(perms); err != nil {
+		return nil, err
+	}
+	if err := db.Preload("Permissions").First(&role, role.ID).Error; err != nil {
+		return nil, err
+	}
+	return &role, nil
+}
+
+func (s *OrgService) DeleteRole(orgID uuid.UUID, roleID uuid.UUID, replacementRoleID *uuid.UUID) error {
+	db := database.GetDB()
+	var role models.Role
+	if err := db.Where("id = ? AND org_id = ?", roleID, orgID).First(&role).Error; err != nil {
+		return fmt.Errorf("role not found")
+	}
+	if role.IsSystemRole {
+		return fmt.Errorf("system roles cannot be deleted")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&models.OrgMember{}).Where("role_id = ?", roleID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			if replacementRoleID == nil || *replacementRoleID == uuid.Nil {
+				return fmt.Errorf("role is assigned to members; provide replacement_role_id")
+			}
+			if err := tx.Model(&models.OrgMember{}).Where("role_id = ?", roleID).Update("role_id", *replacementRoleID).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Delete(&models.Role{}, roleID).Error
+	})
+}
+
+func (s *OrgService) ListInvitations(orgID uuid.UUID) ([]models.OrgInvitation, error) {
+	var invitations []models.OrgInvitation
+	db := database.GetDB()
+	if err := db.Where("org_id = ?", orgID).
+		Preload("Role").
+		Preload("InvitedBy").
+		Order("created_at DESC").
+		Find(&invitations).Error; err != nil {
+		return nil, err
+	}
+	return invitations, nil
+}
+
+func (s *OrgService) ResendInvitation(orgID, inviteID, actorID uuid.UUID) (string, error) {
+	db := database.GetDB()
+	var invite models.OrgInvitation
+	if err := db.Where("id = ? AND org_id = ?", inviteID, orgID).Preload("Role").First(&invite).Error; err != nil {
+		return "", fmt.Errorf("invitation not found")
+	}
+	if invite.Status != models.InvitationPending {
+		return "", fmt.Errorf("only pending invitations can be resent")
+	}
+	raw, tokenHash, err := generateInviteToken()
+	if err != nil {
+		return "", err
+	}
+	invite.TokenHash = tokenHash
+	invite.ExpiresAt = time.Now().Add(s.inviteTTL)
+	invite.InvitedByUserID = actorID
+	if err := db.Save(&invite).Error; err != nil {
+		return "", err
+	}
+	var org models.Organization
+	var inviter models.User
+	_ = db.First(&org, orgID).Error
+	_ = db.First(&inviter, actorID).Error
+	url := fmt.Sprintf("%s/invite/accept?token=%s", s.frontendURL, raw)
+	if err := s.emailSender.SendInvite(invite.Email, org.Name, inviter.Name, invite.Role.Name, url); err != nil {
+		return "", err
+	}
+	return url, nil
+}
+
+func (s *OrgService) RevokeInvitation(orgID, inviteID uuid.UUID) error {
+	db := database.GetDB()
+	return db.Model(&models.OrgInvitation{}).
+		Where("id = ? AND org_id = ?", inviteID, orgID).
+		Updates(map[string]interface{}{"status": models.InvitationRevoked}).Error
+}
+
+func (s *OrgService) AcceptInvitation(userID uuid.UUID, rawToken string) (*models.OrgMember, error) {
+	db := database.GetDB()
+	tokenHash := invitationTokenHash(strings.TrimSpace(rawToken))
+	var invite models.OrgInvitation
+	if err := db.Where("token_hash = ?", tokenHash).Preload("Role").First(&invite).Error; err != nil {
+		return nil, fmt.Errorf("invitation not found")
+	}
+	if invite.Status != models.InvitationPending {
+		return nil, fmt.Errorf("invitation is no longer active")
+	}
+	if time.Now().After(invite.ExpiresAt) {
+		_ = db.Model(&invite).Update("status", models.InvitationExpired).Error
+		return nil, fmt.Errorf("invitation expired")
+	}
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(strings.TrimSpace(user.Email), strings.TrimSpace(invite.Email)) {
+		return nil, fmt.Errorf("invitation email does not match signed-in user")
+	}
+	member := &models.OrgMember{}
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var existing models.OrgMember
+		if err := tx.Where("org_id = ? AND user_id = ?", invite.OrgID, user.ID).First(&existing).Error; err == nil {
+			member = &existing
+		} else {
+			member = &models.OrgMember{
+				OrgID:  invite.OrgID,
+				UserID: user.ID,
+				RoleID: invite.RoleID,
+			}
+			if err := tx.Create(member).Error; err != nil {
+				return err
+			}
+		}
+		now := time.Now()
+		return tx.Model(&models.OrgInvitation{}).Where("id = ?", invite.ID).Updates(map[string]interface{}{
+			"status":      models.InvitationAccepted,
+			"accepted_at": &now,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Preload("Role").Preload("User").First(member, member.ID).Error; err != nil {
+		return nil, err
+	}
+	return member, nil
+}
+
+// AcceptInvitationByID accepts a pending invitation for the signed-in user by invite id.
+func (s *OrgService) AcceptInvitationByID(userID, inviteID uuid.UUID) (*models.OrgMember, error) {
+	db := database.GetDB()
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
+		return nil, err
+	}
+	var invite models.OrgInvitation
+	if err := db.Where("id = ?", inviteID).Preload("Role").First(&invite).Error; err != nil {
+		return nil, fmt.Errorf("invitation not found")
+	}
+	if invite.Status != models.InvitationPending {
+		return nil, fmt.Errorf("invitation is no longer pending")
+	}
+	if time.Now().After(invite.ExpiresAt) {
+		_ = db.Model(&invite).Update("status", models.InvitationExpired).Error
+		return nil, fmt.Errorf("invitation expired")
+	}
+	if !strings.EqualFold(strings.TrimSpace(user.Email), strings.TrimSpace(invite.Email)) {
+		return nil, fmt.Errorf("invitation email does not match signed-in user")
+	}
+
+	var created models.OrgMember
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var existing models.OrgMember
+		if err := tx.Where("org_id = ? AND user_id = ?", invite.OrgID, user.ID).First(&existing).Error; err == nil {
+			created = existing
+		} else {
+			created = models.OrgMember{
+				OrgID:  invite.OrgID,
+				UserID: user.ID,
+				RoleID: invite.RoleID,
+			}
+			if err := tx.Create(&created).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&models.OrgInvitation{}).Where("id = ?", invite.ID).Updates(map[string]interface{}{
+			"status":      models.InvitationAccepted,
+			"accepted_at": time.Now(),
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Preload("User").Preload("Role").First(&created, created.ID).Error; err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+// ListInvitationsForUser returns pending invites that match the user's email.
+func (s *OrgService) ListInvitationsForUser(userID uuid.UUID) ([]models.OrgInvitation, error) {
+	db := database.GetDB()
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
+		return nil, err
+	}
+	var invites []models.OrgInvitation
+	if err := db.
+		Where("LOWER(email) = LOWER(?) AND status = ?", user.Email, models.InvitationPending).
+		Where("expires_at > ?", time.Now()).
+		Preload("Role").
+		Preload("Organization").
+		Preload("InvitedBy").
+		Order("created_at DESC").
+		Find(&invites).Error; err != nil {
+		return nil, err
+	}
+	return invites, nil
 }

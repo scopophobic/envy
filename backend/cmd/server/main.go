@@ -66,10 +66,18 @@ func main() {
 	if cfg.GoogleRedirectURL != "" {
 		log.Printf("🔐 Google OAuth redirect_uri (must match Google Console exactly): %s", cfg.GoogleRedirectURL)
 	}
-	orgService := services.NewOrgService(tierService)
+	var emailSender services.EmailSender = &services.LogEmailSender{}
+	if smtpSender, smtpErr := services.NewSMTPEmailSender(cfg); smtpErr == nil {
+		emailSender = smtpSender
+		log.Println("✉️ SMTP invite email sender enabled")
+	} else {
+		log.Printf("⚠️  SMTP email not configured, falling back to log sender: %v", smtpErr)
+	}
+	orgService := services.NewOrgService(tierService, emailSender, cfg.FrontendURL, cfg.InviteTokenTTLHours)
 	projectService := services.NewProjectService(tierService)
 	envService := services.NewEnvironmentService()
 	auditService := services.NewAuditService()
+	adminService := services.NewAdminService()
 
 	// Initialize encryption: primary (KMS or local) + always local for decrypting mixed storage
 	localEncryptor := services.NewLocalEncryptionService(cfg.JWTSecret)
@@ -89,8 +97,8 @@ func main() {
 		encryptor = localEncryptor
 	}
 
-	// Initialize billing (optional — works without Razorpay keys)
-	var billingHandler *handlers.BillingHandler
+	// Billing: routes are always registered; without keys, handlers return 503 + JSON (no more 404 on /billing/*).
+	var billingService *services.BillingService
 	if cfg.RazorpayKeyID != "" && cfg.RazorpayKeySecret != "" {
 		razorpayProvider := services.NewRazorpayProvider(
 			cfg.RazorpayKeyID,
@@ -99,12 +107,12 @@ func main() {
 			cfg.RazorpayPlanStarter,
 			cfg.RazorpayPlanTeam,
 		)
-		billingService := services.NewBillingService(razorpayProvider, cfg.FrontendURL)
-		billingHandler = handlers.NewBillingHandler(billingService)
-		log.Println("💳 Razorpay billing enabled")
+		billingService = services.NewBillingService(razorpayProvider, cfg.FrontendURL)
+		log.Println("💳 Razorpay billing enabled (checkout + webhooks active)")
 	} else {
-		log.Println("⚠️  No RAZORPAY_KEY_ID configured, billing endpoints disabled")
+		log.Println("⚠️  RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET not set — billing returns 503 until configured")
 	}
+	billingHandler := handlers.NewBillingHandler(billingService)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(authService, tierService, cfg.FrontendURL)
@@ -116,6 +124,7 @@ func main() {
 	platformService := services.NewPlatformService(encryptor, localEncryptor, secretService)
 	platformHandler := handlers.NewPlatformHandler(platformService)
 	auditHandler := handlers.NewAuditHandler(auditService)
+	adminHandler := handlers.NewAdminHandler(adminService)
 
 	// Set Gin mode
 	if cfg.IsProduction() {
@@ -173,38 +182,45 @@ func main() {
 			protected.GET("/orgs", orgHandler.ListOrganizations)
 			protected.POST("/orgs", orgHandler.CreateOrganization)
 			protected.GET("/orgs/:id", orgHandler.GetOrganization)
-			protected.PATCH("/orgs/:id", middleware.RequirePermission(models.PermissionOrgManage), orgHandler.UpdateOrganization)
-			protected.DELETE("/orgs/:id", middleware.RequirePermission(models.PermissionOrgManage), orgHandler.DeleteOrganization)
+			protected.PATCH("/orgs/:id", middleware.RequireOrgPermission("id", models.PermissionOrgManage), orgHandler.UpdateOrganization)
+			protected.DELETE("/orgs/:id", middleware.RequireOrgPermission("id", models.PermissionOrgManage), orgHandler.DeleteOrganization)
 
 			// Organization members (blocked for personal workspaces)
-			protected.POST("/orgs/:id/members", middleware.RejectIfPersonalWorkspace(), middleware.RequirePermission(models.PermissionMembersInvite), orgHandler.InviteMember)
-			protected.PATCH("/orgs/:id/members/:memberId", middleware.RejectIfPersonalWorkspace(), middleware.RequirePermission(models.PermissionMembersManage), orgHandler.UpdateMemberRole)
-			protected.DELETE("/orgs/:id/members/:memberId", middleware.RejectIfPersonalWorkspace(), middleware.RequirePermission(models.PermissionMembersManage), orgHandler.RemoveMember)
+			protected.POST("/orgs/:id/members", middleware.RejectIfPersonalWorkspace(), middleware.RequireOrgPermission("id", models.PermissionMembersInvite), orgHandler.InviteMember)
+			protected.PATCH("/orgs/:id/members/:memberId", middleware.RejectIfPersonalWorkspace(), middleware.RequireOrgPermission("id", models.PermissionMembersManage), orgHandler.UpdateMemberRole)
+			protected.DELETE("/orgs/:id/members/:memberId", middleware.RejectIfPersonalWorkspace(), middleware.RequireOrgPermission("id", models.PermissionMembersManage), orgHandler.RemoveMember)
+			protected.GET("/orgs/:id/invites", middleware.RejectIfPersonalWorkspace(), middleware.RequireOrgPermission("id", models.PermissionMembersManage), orgHandler.ListInvitations)
+			protected.POST("/orgs/:id/invites/:inviteId/resend", middleware.RejectIfPersonalWorkspace(), middleware.RequireOrgPermission("id", models.PermissionMembersInvite), orgHandler.ResendInvitation)
+			protected.DELETE("/orgs/:id/invites/:inviteId", middleware.RejectIfPersonalWorkspace(), middleware.RequireOrgPermission("id", models.PermissionMembersManage), orgHandler.RevokeInvitation)
+			protected.GET("/orgs/:id/roles", middleware.RequireOrgPermission("id", models.PermissionMembersManage), orgHandler.ListRoles)
+			protected.POST("/orgs/:id/roles", middleware.RequireOrgPermission("id", models.PermissionMembersManage), orgHandler.CreateRole)
+			protected.PATCH("/orgs/:id/roles/:roleId", middleware.RequireOrgPermission("id", models.PermissionMembersManage), orgHandler.UpdateRole)
+			protected.DELETE("/orgs/:id/roles/:roleId", middleware.RequireOrgPermission("id", models.PermissionMembersManage), orgHandler.DeleteRole)
 
 			// Projects (use :id for org to match GET /orgs/:id)
 			protected.GET("/orgs/:id/projects", projectHandler.ListOrgProjects)
-			protected.POST("/orgs/:id/projects", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.CreateProject)
+			protected.POST("/orgs/:id/projects", middleware.RequireOrgPermission("id", models.PermissionProjectsManage), projectHandler.CreateProject)
 			protected.GET("/projects/:id", projectHandler.GetProject)
-			protected.PATCH("/projects/:id", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.UpdateProject)
-			protected.DELETE("/projects/:id", middleware.RequirePermission(models.PermissionProjectsManage), projectHandler.DeleteProject)
+			protected.PATCH("/projects/:id", middleware.RequireProjectPermission("id", models.PermissionProjectsManage), projectHandler.UpdateProject)
+			protected.DELETE("/projects/:id", middleware.RequireProjectPermission("id", models.PermissionProjectsManage), projectHandler.DeleteProject)
 
 			// Environments (use :id for project to match GET /projects/:id)
 			protected.GET("/projects/:id/environments", envHandler.ListProjectEnvironments)
-			protected.POST("/projects/:id/environments", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.CreateEnvironment)
+			protected.POST("/projects/:id/environments", middleware.RequireProjectPermission("id", models.PermissionEnvironmentsManage), envHandler.CreateEnvironment)
 			protected.GET("/environments/:id", envHandler.GetEnvironment)
-			protected.PATCH("/environments/:id", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.UpdateEnvironment)
-			protected.DELETE("/environments/:id", middleware.RequirePermission(models.PermissionEnvironmentsManage), envHandler.DeleteEnvironment)
+			protected.PATCH("/environments/:id", middleware.RequireEnvironmentPermission("id", models.PermissionEnvironmentsManage), envHandler.UpdateEnvironment)
+			protected.DELETE("/environments/:id", middleware.RequireEnvironmentPermission("id", models.PermissionEnvironmentsManage), envHandler.DeleteEnvironment)
 
 			// Secrets (use :id for environment to match PATCH/DELETE /environments/:id)
-			protected.GET("/environments/:id/secrets", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ListSecrets)
-			protected.POST("/environments/:id/secrets", middleware.RequirePermission(models.PermissionSecretsCreate), secretHandler.CreateSecret)
-			protected.PATCH("/secrets/:id", middleware.RequirePermission(models.PermissionSecretsUpdate), secretHandler.UpdateSecret)
-			protected.DELETE("/secrets/:id", middleware.RequirePermission(models.PermissionSecretsDelete), secretHandler.DeleteSecret)
-			protected.DELETE("/secrets/:id/purge", middleware.RequirePermission(models.PermissionSecretsDelete), secretHandler.PurgeSecret)
+			protected.GET("/environments/:id/secrets", middleware.RequireEnvironmentPermission("id", models.PermissionSecretsRead), secretHandler.ListSecrets)
+			protected.POST("/environments/:id/secrets", middleware.RequireEnvironmentPermission("id", models.PermissionSecretsCreate), secretHandler.CreateSecret)
+			protected.PATCH("/secrets/:id", middleware.RequireSecretPermission("id", models.PermissionSecretsUpdate), secretHandler.UpdateSecret)
+			protected.DELETE("/secrets/:id", middleware.RequireSecretPermission("id", models.PermissionSecretsDelete), secretHandler.DeleteSecret)
+			protected.DELETE("/secrets/:id/purge", middleware.RequireSecretPermission("id", models.PermissionSecretsDelete), secretHandler.PurgeSecret)
 
 			// Secrets export for CLI
-			protected.GET("/environments/:id/secrets/export", middleware.RequirePermission(models.PermissionSecretsRead), secretHandler.ExportEnvironmentSecrets)
-			protected.POST("/environments/:id/sync", middleware.RequirePermission(models.PermissionSecretsRead), platformHandler.SyncEnvironment)
+			protected.GET("/environments/:id/secrets/export", middleware.RequireEnvironmentPermission("id", models.PermissionSecretsRead), secretHandler.ExportEnvironmentSecrets)
+			protected.POST("/environments/:id/sync", middleware.RequireEnvironmentPermission("id", models.PermissionSecretsRead), platformHandler.SyncEnvironment)
 
 			// Deployment platform connections
 			protected.GET("/platforms", platformHandler.ListConnections)
@@ -212,19 +228,29 @@ func main() {
 			protected.DELETE("/platforms/:id", platformHandler.DeleteConnection)
 
 			// Audit logs
-			protected.GET("/orgs/:id/audit-logs", middleware.RequirePermission(models.PermissionAuditView), auditHandler.ListOrgAuditLogs)
+			protected.GET("/orgs/:id/audit-logs", middleware.RequireOrgPermission("id", models.PermissionAuditView), auditHandler.ListOrgAuditLogs)
 
 			// Billing (protected)
-			if billingHandler != nil {
-				protected.POST("/billing/checkout", billingHandler.CreateCheckoutSession)
-				protected.POST("/billing/portal", billingHandler.CreatePortalSession)
+			protected.GET("/billing/status", billingHandler.Status)
+			protected.POST("/billing/checkout", billingHandler.CreateCheckoutSession)
+			protected.POST("/billing/portal", billingHandler.CreatePortalSession)
+			protected.POST("/billing/orders", billingHandler.CreateOrder)
+			protected.POST("/billing/verify-payment", billingHandler.VerifyPayment)
+			protected.POST("/invites/accept", orgHandler.AcceptInvitation)
+			protected.GET("/invites/mine", orgHandler.ListMyInvitations)
+			protected.POST("/invites/:inviteId/accept", orgHandler.AcceptMyInvitation)
+
+			// Platform super-admin (v2)
+			admin := protected.Group("/admin")
+			admin.Use(middleware.RequireSuperAdmin())
+			{
+				admin.GET("/users", adminHandler.ListUsers)
+				admin.PATCH("/users/:id/tier", adminHandler.UpdateUserTier)
 			}
 		}
 
-		// Billing webhook (public — Stripe sends these without our JWT)
-		if billingHandler != nil {
-			v1.POST("/billing/webhook", billingHandler.HandleWebhook)
-		}
+		// Billing webhook (public — Razorpay sends without our JWT)
+		v1.POST("/billing/webhook", billingHandler.HandleWebhook)
 	}
 
 	// Start server

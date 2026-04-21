@@ -312,6 +312,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		"email": user.Email,
 		"name":  user.Name,
 		"tier":  user.SubscriptionTier,
+		"is_super_admin": user.IsSuperAdmin,
 		"oauth_provider": user.OAuthProvider,
 		"created_at": user.CreatedAt,
 	})

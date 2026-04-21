@@ -81,3 +81,46 @@ func (om *OrgMember) BeforeCreate(tx *gorm.DB) error {
 func (OrgMember) TableName() string {
 	return "org_members"
 }
+
+// OrgInvitationStatus tracks lifecycle of team invitations.
+type OrgInvitationStatus string
+
+const (
+	InvitationPending  OrgInvitationStatus = "pending"
+	InvitationAccepted OrgInvitationStatus = "accepted"
+	InvitationRevoked  OrgInvitationStatus = "revoked"
+	InvitationExpired  OrgInvitationStatus = "expired"
+)
+
+// OrgInvitation represents a pending invite sent to an email.
+// Membership is created only after acceptance.
+type OrgInvitation struct {
+	ID              uuid.UUID           `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	OrgID           uuid.UUID           `gorm:"type:uuid;not null;index" json:"org_id"`
+	InvitedByUserID uuid.UUID           `gorm:"type:uuid;not null;index" json:"invited_by_user_id"`
+	RoleID          uuid.UUID           `gorm:"type:uuid;not null;index" json:"role_id"`
+	Email           string              `gorm:"type:varchar(255);not null;index" json:"email"`
+	TokenHash       string              `gorm:"type:varchar(255);not null;index" json:"-"`
+	Status          OrgInvitationStatus `gorm:"type:varchar(20);not null;default:'pending';index" json:"status"`
+	ExpiresAt       time.Time           `gorm:"not null;index" json:"expires_at"`
+	AcceptedAt      *time.Time          `json:"accepted_at,omitempty"`
+
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+
+	Organization Organization `gorm:"foreignKey:OrgID" json:"organization,omitempty"`
+	InvitedBy    User         `gorm:"foreignKey:InvitedByUserID" json:"invited_by,omitempty"`
+	Role         Role         `gorm:"foreignKey:RoleID" json:"role,omitempty"`
+}
+
+func (oi *OrgInvitation) BeforeCreate(tx *gorm.DB) error {
+	if oi.ID == uuid.Nil {
+		oi.ID = uuid.New()
+	}
+	return nil
+}
+
+func (OrgInvitation) TableName() string {
+	return "org_invitations"
+}

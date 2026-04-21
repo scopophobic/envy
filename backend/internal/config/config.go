@@ -48,14 +48,24 @@ type Config struct {
 	RazorpayPlanStarter  string
 	RazorpayPlanTeam     string
 
+	// Email (team invitations)
+	SMTPHost      string
+	SMTPPort      string
+	SMTPUsername  string
+	SMTPPassword  string
+	SMTPFromEmail string
+	SMTPFromName  string
+
+	InviteTokenTTLHours int
+
 	// Rate Limiting
 	RateLimitEnabled bool
 }
 
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
-	// Load .env file if it exists (ignore error if not found)
-	_ = godotenv.Load()
+	// Try common locations so the API picks up Razorpay keys whether you start from repo root or backend/
+	_ = godotenv.Load(".env", "backend/.env", "../backend/.env", "../.env")
 
 	cfg := &Config{
 		Port: getEnv("PORT", "8080"),
@@ -88,6 +98,15 @@ func Load() (*Config, error) {
 		RazorpayWebhookSecret: getEnv("RAZORPAY_WEBHOOK_SECRET", ""),
 		RazorpayPlanStarter:   getEnv("RAZORPAY_PLAN_STARTER", ""),
 		RazorpayPlanTeam:      getEnv("RAZORPAY_PLAN_TEAM", ""),
+
+		SMTPHost:      strings.TrimSpace(getEnv("SMTP_HOST", "")),
+		SMTPPort:      strings.TrimSpace(getEnv("SMTP_PORT", "587")),
+		SMTPUsername:  strings.TrimSpace(getEnv("SMTP_USERNAME", "")),
+		SMTPPassword:  strings.TrimSpace(getEnv("SMTP_PASSWORD", "")),
+		SMTPFromEmail: strings.TrimSpace(getEnv("SMTP_FROM_EMAIL", "")),
+		SMTPFromName:  strings.TrimSpace(getEnv("SMTP_FROM_NAME", "Envo")),
+
+		InviteTokenTTLHours: getEnvInt("INVITE_TOKEN_TTL_HOURS", 168),
 
 		RateLimitEnabled: getEnvBool("RATE_LIMIT_ENABLED", true),
 	}
@@ -180,6 +199,17 @@ func getEnvBool(key string, defaultValue bool) bool {
 			return defaultValue
 		}
 		return boolValue
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		intValue, err := strconv.Atoi(value)
+		if err != nil {
+			return defaultValue
+		}
+		return intValue
 	}
 	return defaultValue
 }

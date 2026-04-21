@@ -30,6 +30,7 @@ type User struct {
 	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
 	Email     string    `gorm:"type:varchar(255);uniqueIndex;not null" json:"email"`
 	Name      string    `gorm:"type:varchar(255);not null" json:"name"`
+	IsSuperAdmin bool   `gorm:"column:is_super_admin;not null;default:false;index" json:"is_super_admin"`
 	
 	// OAuth fields
 	OAuthProvider string `gorm:"column:oauth_provider;type:varchar(50);not null" json:"oauth_provider"` // google, github

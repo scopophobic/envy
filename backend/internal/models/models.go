@@ -12,6 +12,7 @@ func AllModels() []interface{} {
 		&User{},
 		&Organization{},
 		&OrgMember{},
+		&OrgInvitation{},
 		&Permission{},
 		&Role{},
 		&Project{},
@@ -54,6 +55,14 @@ func RunCustomMigrations(db *gorm.DB) error {
 		{
 			name: "idx_org_members_user_org",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_org_members_user_org ON org_members (user_id, org_id)`,
+		},
+		{
+			name: "idx_roles_org_name_unique",
+			sql:  `CREATE UNIQUE INDEX IF NOT EXISTS idx_roles_org_name_unique ON roles (org_id, name) WHERE deleted_at IS NULL`,
+		},
+		{
+			name: "idx_org_invitations_org_email_pending",
+			sql:  `CREATE UNIQUE INDEX IF NOT EXISTS idx_org_invitations_org_email_pending ON org_invitations (org_id, lower(email)) WHERE status = 'pending' AND deleted_at IS NULL`,
 		},
 		{
 			name: "idx_audit_logs_org_created",
