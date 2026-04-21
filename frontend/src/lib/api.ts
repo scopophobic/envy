@@ -155,6 +155,7 @@ export type User = {
   email: string
   name: string
   tier: string
+  is_super_admin?: boolean
   oauth_provider?: string
   created_at?: string
 }
@@ -215,6 +216,26 @@ export type OrgMember = {
 }
 
 export type OrgDetail = Org & { members?: OrgMember[]; owner_type: OwnerType }
+export type RolePermission = { id: string; name: string; description: string }
+export type OrgRole = {
+  id: string
+  name: string
+  is_system_role: boolean
+  org_id?: string
+  permissions?: RolePermission[]
+}
+export type OrgInvitation = {
+  id: string
+  org_id: string
+  email: string
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
+  expires_at: string
+  created_at: string
+  accepted_at?: string
+  role?: OrgRole
+  invited_by?: { id: string; email: string; name: string }
+  organization?: { id: string; name: string }
+}
 
 export async function getOrg(id: string): Promise<OrgDetail> {
   return request<OrgDetail>(`/api/v1/orgs/${id}`, { auth: true })
@@ -242,24 +263,99 @@ export async function deleteOrg(id: string): Promise<void> {
 
 // ── Members ──────────────────────────────────────────────────────────
 
-export async function inviteMember(orgId: string, email: string, role: string): Promise<OrgMember> {
-  return request<OrgMember>(`/api/v1/orgs/${orgId}/members`, {
+export async function inviteMember(orgId: string, email: string, role: string, roleId?: string): Promise<{ invitation: OrgInvitation; invite_url: string; warning?: string }> {
+  return request<{ invitation: OrgInvitation; invite_url: string; warning?: string }>(`/api/v1/orgs/${orgId}/members`, {
     method: 'POST',
     auth: true,
-    body: JSON.stringify({ email, role }),
+    body: JSON.stringify({ email, role, role_id: roleId }),
   })
 }
 
-export async function updateMemberRole(orgId: string, memberId: string, role: string): Promise<OrgMember> {
+export async function updateMemberRole(orgId: string, memberId: string, role: string, roleId?: string): Promise<OrgMember> {
   return request<OrgMember>(`/api/v1/orgs/${orgId}/members/${memberId}`, {
     method: 'PATCH',
     auth: true,
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({ role, role_id: roleId }),
   })
 }
 
 export async function removeMember(orgId: string, memberId: string): Promise<void> {
   await request(`/api/v1/orgs/${orgId}/members/${memberId}`, { method: 'DELETE', auth: true })
+}
+
+export async function listOrgRoles(orgId: string): Promise<OrgRole[]> {
+  return request<OrgRole[]>(`/api/v1/orgs/${orgId}/roles`, { auth: true })
+}
+
+export async function createOrgRole(orgId: string, payload: { name: string; permission_names: string[] }): Promise<OrgRole> {
+  return request<OrgRole>(`/api/v1/orgs/${orgId}/roles`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateOrgRole(orgId: string, roleId: string, payload: { name?: string; permission_names: string[] }): Promise<OrgRole> {
+  return request<OrgRole>(`/api/v1/orgs/${orgId}/roles/${roleId}`, {
+    method: 'PATCH',
+    auth: true,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteOrgRole(orgId: string, roleId: string, replacementRoleId?: string): Promise<void> {
+  await request(`/api/v1/orgs/${orgId}/roles/${roleId}`, {
+    method: 'DELETE',
+    auth: true,
+    body: replacementRoleId ? JSON.stringify({ replacement_role_id: replacementRoleId }) : undefined,
+  })
+}
+
+export async function listOrgInvitations(orgId: string): Promise<OrgInvitation[]> {
+  return request<OrgInvitation[]>(`/api/v1/orgs/${orgId}/invites`, { auth: true })
+}
+
+export async function resendOrgInvitation(orgId: string, inviteId: string): Promise<{ invite_url: string }> {
+  return request<{ invite_url: string }>(`/api/v1/orgs/${orgId}/invites/${inviteId}/resend`, {
+    method: 'POST',
+    auth: true,
+  })
+}
+
+export async function revokeOrgInvitation(orgId: string, inviteId: string): Promise<void> {
+  await request(`/api/v1/orgs/${orgId}/invites/${inviteId}`, { method: 'DELETE', auth: true })
+}
+
+export async function acceptInvitation(token: string): Promise<OrgMember> {
+  return request<OrgMember>('/api/v1/invites/accept', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ token }),
+  })
+}
+
+export async function listMyInvitations(): Promise<OrgInvitation[]> {
+  return request<OrgInvitation[]>('/api/v1/invites/mine', { auth: true })
+}
+
+export async function acceptMyInvitation(inviteId: string): Promise<OrgMember> {
+  return request<OrgMember>(`/api/v1/invites/${inviteId}/accept`, {
+    method: 'POST',
+    auth: true,
+  })
+}
+
+export async function listAdminUsers(query = ''): Promise<User[]> {
+  const path = query ? `/api/v1/admin/users?q=${encodeURIComponent(query)}` : '/api/v1/admin/users'
+  return request<User[]>(path, { auth: true })
+}
+
+export async function updateAdminUserTier(userId: string, tier: 'free' | 'starter' | 'team'): Promise<User> {
+  return request<User>(`/api/v1/admin/users/${userId}/tier`, {
+    method: 'PATCH',
+    auth: true,
+    body: JSON.stringify({ tier }),
+  })
 }
 
 // ── Projects ─────────────────────────────────────────────────────────

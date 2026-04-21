@@ -13,6 +13,9 @@ const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m 
 const EnvironmentDetailPage = lazy(() => import('./pages/EnvironmentDetailPage').then(m => ({ default: m.EnvironmentDetailPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const PricingPage = lazy(() => import('./pages/PricingPage').then(m => ({ default: m.PricingPage })))
+const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage').then(m => ({ default: m.InviteAcceptPage })))
+const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })))
+const MyInvitesPage = lazy(() => import('./pages/MyInvitesPage').then(m => ({ default: m.MyInvitesPage })))
 
 function PageLoader() {
   return (
@@ -35,6 +38,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/invite/accept" element={<InviteAcceptPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route
           element={
@@ -49,6 +53,8 @@ export default function App() {
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/environments/:id" element={<EnvironmentDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/invites" element={<MyInvitesPage />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

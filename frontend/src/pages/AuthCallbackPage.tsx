@@ -30,7 +30,13 @@ export function AuthCallbackPage() {
         }
         // Clear hash from URL
         window.history.replaceState(null, '', window.location.pathname)
-        nav('/orgs')
+        const inviteToken = sessionStorage.getItem('envo_invite_token')
+        if (inviteToken) {
+          sessionStorage.removeItem('envo_invite_token')
+          nav(`/invite/accept?token=${encodeURIComponent(inviteToken)}`)
+        } else {
+          nav('/orgs')
+        }
       } catch (e) {
         console.error('AuthCallback error:', e)
         setError((e as Error).message)
@@ -40,7 +46,13 @@ export function AuthCallbackPage() {
       // No tokens - check if we have them saved already (maybe page reload)
       const existing = getAccessToken()
       if (existing) {
-        nav('/orgs')
+        const inviteToken = sessionStorage.getItem('envo_invite_token')
+        if (inviteToken) {
+          sessionStorage.removeItem('envo_invite_token')
+          nav(`/invite/accept?token=${encodeURIComponent(inviteToken)}`)
+        } else {
+          nav('/orgs')
+        }
       } else {
         setError('No tokens found in URL. Redirecting to login...')
         setTimeout(() => nav('/login'), 2000)

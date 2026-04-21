@@ -3,22 +3,43 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import {
+  createOrgRole,
   getOrg,
   getTierInfo,
   inviteMember,
+  listOrgInvitations,
+  listOrgRoles,
   removeMember,
+  resendOrgInvitation,
+  revokeOrgInvitation,
+  type OrgInvitation,
+  type OrgRole,
   updateMemberRole,
+  deleteOrgRole,
   type OrgDetail,
   type OrgMember,
   type TierInfo,
 } from '../lib/api'
 
-const ROLES = ['Owner', 'Admin', 'Secret Manager', 'Developer', 'Viewer']
+const PERMISSION_OPTIONS = [
+  'secrets.read',
+  'secrets.create',
+  'secrets.update',
+  'secrets.delete',
+  'projects.manage',
+  'environments.manage',
+  'members.invite',
+  'members.manage',
+  'audit.view',
+  'org.manage',
+]
 
 export function MembersPage() {
   const { id } = useParams()
   const nav = useNavigate()
   const [org, setOrg] = useState<OrgDetail | null>(null)
+  const [roles, setRoles] = useState<OrgRole[]>([])
+  const [invites, setInvites] = useState<OrgInvitation[]>([])
   const [tierInfo, setTierInfo] = useState<TierInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -26,9 +47,15 @@ export function MembersPage() {
   // Invite form
   const [showInvite, setShowInvite] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('Developer')
+  const [inviteRoleId, setInviteRoleId] = useState('')
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
+  const [newRoleName, setNewRoleName] = useState('')
+  const [newRolePerms, setNewRolePerms] = useState<string[]>(['secrets.read'])
+  const [roleBusy, setRoleBusy] = useState(false)
+  const [showCreateRole, setShowCreateRole] = useState(false)
+  const [expandedRoleIds, setExpandedRoleIds] = useState<string[]>([])
+  const [activeTab, setActiveTab] = useState<'members' | 'invites' | 'roles'>('members')
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -45,6 +72,14 @@ export function MembersPage() {
       setOrg(o)
     }).catch((e) => setError((e as Error).message))
     getTierInfo().then(setTierInfo).catch(() => {})
+    listOrgRoles(id).then((data) => {
+      setRoles(data)
+      if (!inviteRoleId && data.length > 0) {
+        const firstCustom = data.find(r => !r.is_system_role)
+        setInviteRoleId((firstCustom ?? data[0]).id)
+      }
+    }).catch(() => {})
+    listOrgInvitations(id).then(setInvites).catch(() => {})
   }, [id, nav])
 
   useEffect(() => { load() }, [load])
@@ -55,10 +90,14 @@ export function MembersPage() {
     setInviting(true)
     setInviteError(null)
     try {
-      await inviteMember(id, inviteEmail.trim(), inviteRole)
+      const result = await inviteMember(id, inviteEmail.trim(), '', inviteRoleId || undefined)
       setInviteEmail('')
       setShowInvite(false)
-      showToast(`Invited ${inviteEmail.trim()}`)
+      if (result.warning) {
+        showToast(result.warning)
+      } else {
+        showToast(`Invited ${inviteEmail.trim()}`)
+      }
       load()
     } catch (err) {
       setInviteError((err as Error).message)
@@ -67,11 +106,11 @@ export function MembersPage() {
     }
   }
 
-  const handleRoleChange = async (memberId: string, role: string, name: string) => {
+  const handleRoleChange = async (memberId: string, roleName: string, roleId: string | undefined, name: string) => {
     if (!id) return
     try {
-      await updateMemberRole(id, memberId, role)
-      showToast(`Updated ${name} to ${role}`)
+      await updateMemberRole(id, memberId, roleName, roleId)
+      showToast(`Updated ${name} to ${roleName}`)
       load()
     } catch (err) {
       alert((err as Error).message)
@@ -84,6 +123,67 @@ export function MembersPage() {
     try {
       await removeMember(id, memberId)
       showToast(`Removed ${name}`)
+      load()
+    } catch (err) {
+      alert((err as Error).message)
+    }
+  }
+
+  const handleCreateRole = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!id || !newRoleName.trim()) return
+    setRoleBusy(true)
+    try {
+      await createOrgRole(id, { name: newRoleName.trim(), permission_names: newRolePerms })
+      setNewRoleName('')
+      setNewRolePerms(['secrets.read'])
+      showToast('Role created')
+      load()
+    } catch (err) {
+      alert((err as Error).message)
+    } finally {
+      setRoleBusy(false)
+    }
+  }
+
+  const togglePerm = (perm: string) => {
+    setNewRolePerms(prev => prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm])
+  }
+
+  const handleDeleteRole = async (role: OrgRole) => {
+    if (!id) return
+    if (!confirm(`Delete role "${role.name}"?`)) return
+    try {
+      await deleteOrgRole(id, role.id)
+      showToast(`Deleted role ${role.name}`)
+      load()
+    } catch (err) {
+      alert((err as Error).message)
+    }
+  }
+
+  const toggleRoleDetails = (roleId: string) => {
+    setExpandedRoleIds((prev) =>
+      prev.includes(roleId) ? prev.filter((id) => id !== roleId) : [...prev, roleId],
+    )
+  }
+
+  const handleResendInvite = async (inviteId: string) => {
+    if (!id) return
+    try {
+      await resendOrgInvitation(id, inviteId)
+      showToast('Invitation resent')
+      load()
+    } catch (err) {
+      alert((err as Error).message)
+    }
+  }
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    if (!id) return
+    try {
+      await revokeOrgInvitation(id, inviteId)
+      showToast('Invitation revoked')
       load()
     } catch (err) {
       alert((err as Error).message)
@@ -116,6 +216,7 @@ export function MembersPage() {
   }
 
   const members = org.members ?? []
+  const roleMap = new Map(roles.map(r => [r.id, r]))
   const maxDevs = tierInfo?.limits.max_devs_per_org ?? -1
   const memberLimitReached = maxDevs !== -1 && members.length >= maxDevs
 
@@ -181,12 +282,14 @@ export function MembersPage() {
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-slate-600">Role</span>
               <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value)}
+                value={inviteRoleId}
+                onChange={(e) => setInviteRoleId(e.target.value)}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
               >
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}{r.is_system_role ? ' (system)' : ''}
+                  </option>
                 ))}
               </select>
             </label>
@@ -194,11 +297,152 @@ export function MembersPage() {
               {inviting ? 'Inviting...' : 'Invite'}
             </Button>
           </form>
-          <p className="mt-2 text-xs text-slate-400">The user must have signed in to Envo at least once.</p>
+          <p className="mt-2 text-xs text-slate-400">An email invitation is sent regardless of whether the account exists yet.</p>
           {inviteError && <p className="mt-2 text-sm text-red-600">{inviteError}</p>}
         </Card>
       )}
 
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab('members')}
+          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === 'members' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          Members
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('invites')}
+          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === 'invites' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          Invites
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('roles')}
+          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === 'roles' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          Roles
+        </button>
+      </div>
+
+      {activeTab === 'roles' && (
+      <Card>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Custom roles</h3>
+            <p className="mt-1 text-xs text-slate-500">Preset system roles are always available. Add custom roles when needed.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCreateRole((prev) => !prev)}
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            {showCreateRole ? 'Hide creator' : 'Create role'}
+          </button>
+        </div>
+        {showCreateRole && (
+          <form onSubmit={handleCreateRole} className="mt-4 space-y-3">
+            <input
+              value={newRoleName}
+              onChange={(e) => setNewRoleName(e.target.value)}
+              placeholder="Role name (e.g., QA Lead)"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <div className="grid gap-2 sm:grid-cols-2">
+              {PERMISSION_OPTIONS.map((perm) => (
+                <label key={perm} className="flex items-center gap-2 text-xs text-slate-700">
+                  <input type="checkbox" checked={newRolePerms.includes(perm)} onChange={() => togglePerm(perm)} />
+                  <span className="font-mono">{perm}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="submit" disabled={roleBusy || !newRoleName.trim()}>
+                {roleBusy ? 'Creating role...' : 'Save role'}
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowCreateRole(false)}
+                className="rounded-md border border-slate-200 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+        <div className="mt-4 space-y-2">
+          {roles.map((role) => (
+            <div key={role.id} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900">{role.name}</p>
+                  <p className="text-xs text-slate-500">{role.is_system_role ? 'System role' : 'Custom role'}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="text-xs text-slate-600 hover:underline"
+                    onClick={() => toggleRoleDetails(role.id)}
+                  >
+                    {expandedRoleIds.includes(role.id) ? 'Hide details' : 'Show details'}
+                  </button>
+                  {!role.is_system_role && (
+                    <button className="text-xs text-red-600 hover:underline" onClick={() => handleDeleteRole(role)}>
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                {(role.permissions ?? []).length} permission{(role.permissions ?? []).length === 1 ? '' : 's'}
+              </p>
+              {expandedRoleIds.includes(role.id) && (
+                <p className="mt-1 text-xs text-slate-600">
+                  {(role.permissions ?? []).map((p) => p.name).join(', ') || 'No permissions assigned'}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </Card>
+      )}
+
+      {activeTab === 'invites' && (
+      <Card>
+        <h3 className="text-sm font-semibold text-slate-900">Pending invitations</h3>
+        {invites.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">No invitations yet.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {invites.map((inv) => (
+              <div key={inv.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
+                <div>
+                  <p className="text-sm text-slate-900">{inv.email}</p>
+                  <p className="text-xs text-slate-500">
+                    {inv.role?.name ?? 'Role'} · {inv.status} · expires {new Date(inv.expires_at).toLocaleString()}
+                  </p>
+                </div>
+                {inv.status === 'pending' && (
+                  <div className="flex gap-2">
+                    <button className="rounded border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50" onClick={() => handleResendInvite(inv.id)}>Resend</button>
+                    <button className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50" onClick={() => handleRevokeInvite(inv.id)}>Revoke</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      )}
+
+      {activeTab === 'members' && (
       <Card>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -226,12 +470,15 @@ export function MembersPage() {
                     <td className="py-2.5 pr-4 text-slate-600">{m.user?.email ?? '-'}</td>
                     <td className="py-2.5 pr-4">
                       <select
-                        value={m.role?.name ?? 'Developer'}
-                        onChange={(e) => handleRoleChange(m.id, e.target.value, displayName)}
+                        value={m.role?.id ?? ''}
+                        onChange={(e) => {
+                          const selected = roleMap.get(e.target.value)
+                          handleRoleChange(m.id, selected?.name ?? '', selected?.id, displayName)
+                        }}
                         className="rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400"
                       >
-                        {ROLES.map((r) => (
-                          <option key={r} value={r}>{r}</option>
+                        {roles.map((r) => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </select>
                     </td>
@@ -257,6 +504,7 @@ export function MembersPage() {
           </table>
         </div>
       </Card>
+      )}
     </div>
   )
 }

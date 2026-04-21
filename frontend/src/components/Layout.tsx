@@ -260,6 +260,31 @@ export function Layout() {
                   </svg>
                   Plans & Settings
                 </Link>
+                <Link
+                  to="/invites"
+                  onClick={() => setUserDropdownOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-400">
+                    <path d="M4 4h16v16H4z" />
+                    <path d="m22 6-10 7L2 6" />
+                  </svg>
+                  My invites
+                </Link>
+                {user?.is_super_admin && (
+                  <Link
+                    to="/admin"
+                    onClick={() => setUserDropdownOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-400">
+                      <path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" />
+                      <path d="M3 12l9 4.5 9-4.5" />
+                      <path d="M3 16.5l9 4.5 9-4.5" />
+                    </svg>
+                    Admin space
+                  </Link>
+                )}
                 <button
                   onClick={async () => {
                     setUserDropdownOpen(false)
