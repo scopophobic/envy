@@ -43,6 +43,15 @@ func main() {
 		return
 	}
 
+	// In development, keep schema in sync automatically so local auth/setup
+	// does not fail when new model fields are introduced.
+	if cfg.IsDevelopment() {
+		log.Println("🔄 Development mode: applying automatic database migrations...")
+		if err := models.AutoMigrate(database.GetDB()); err != nil {
+			log.Fatalf("❌ Auto-migration failed: %v", err)
+		}
+	}
+
 	// Seed initial data if requested
 	if *seed {
 		if err := database.SeedInitialData(database.GetDB()); err != nil {
