@@ -16,8 +16,8 @@ const (
 	personalMaxEnvs     = 20
 
 	orgMaxProjects = 2
-	orgMaxMembers  = 2
-	orgMaxEnvs     = 10
+	orgMaxMembers  = 3
+	orgMaxEnvs     = 15
 )
 
 // NewTierService creates a new tier service
@@ -82,7 +82,7 @@ func (s *TierService) CanInviteMember(orgID uuid.UUID) (bool, error) {
 	if org.OwnerType == models.OwnerTypePersonal {
 		return false, nil
 	}
-	// Team org policy: 2 members max.
+	// Team org policy: 3 members max.
 	maxDevs := orgMaxMembers
 	if maxDevs == models.UnlimitedValue {
 		return true, nil
