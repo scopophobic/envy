@@ -46,10 +46,12 @@ func (h *BillingHandler) Status(c *gin.Context) {
 		return
 	}
 	starterOK, teamOK := services.RazorpayPlanIDsConfigured()
+	prices := h.billingService.GetPricingCache()
 	c.JSON(http.StatusOK, gin.H{
-		"checkout_enabled":     true,
-		"starter_plan_ready":   starterOK,
-		"team_plan_ready":      teamOK,
+		"checkout_enabled":   true,
+		"starter_plan_ready": starterOK,
+		"team_plan_ready":    teamOK,
+		"prices":             prices,
 	})
 }
 

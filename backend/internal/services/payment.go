@@ -21,6 +21,9 @@ type PaymentProvider interface {
 
 	// VerifyWebhookPayload verifies an incoming webhook and returns a normalised event.
 	VerifyWebhookPayload(payload []byte, sigHeader string) (WebhookEvent, error)
+
+	// GetPlanPricing fetches the plan amount and currency.
+	GetPlanPricing(plan string) (amount int64, currency string, err error)
 }
 
 // WebhookEvent is a normalised representation of a payment webhook event.

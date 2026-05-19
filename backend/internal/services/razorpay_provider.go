@@ -148,6 +148,30 @@ func (r *RazorpayProvider) VerifyWebhookPayload(payload []byte, sigHeader string
 	return we, nil
 }
 
+func (r *RazorpayProvider) GetPlanPricing(plan string) (int64, string, error) {
+	planID, ok := razorpayPlanIDs[plan]
+	if !ok || planID == "" {
+		return 0, "", fmt.Errorf("no Razorpay plan configured for %q", plan)
+	}
+	body, err := r.client.Plan.Fetch(planID, nil, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	item, ok := body["item"].(map[string]interface{})
+	if !ok {
+		return 0, "", fmt.Errorf("invalid plan response format")
+	}
+	amt, ok := parseRZPAmount(item["amount"])
+	if !ok {
+		return 0, "", fmt.Errorf("invalid amount format")
+	}
+	cur, _ := item["currency"].(string)
+	if cur == "" {
+		cur = "INR"
+	}
+	return amt, cur, nil
+}
+
 const (
 	minOrderAmountPaise = 100
 	maxOrderAmountPaise = 10_000_000 // ₹1,00,000.00

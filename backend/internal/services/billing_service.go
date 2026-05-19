@@ -11,12 +11,32 @@ import (
 
 // BillingService orchestrates payment flows through a PaymentProvider.
 type BillingService struct {
-	provider    PaymentProvider
-	frontendURL string
+	provider     PaymentProvider
+	frontendURL  string
+	pricingCache map[string]interface{}
 }
 
 func NewBillingService(provider PaymentProvider, frontendURL string) *BillingService {
-	return &BillingService{provider: provider, frontendURL: frontendURL}
+	return &BillingService{provider: provider, frontendURL: frontendURL, pricingCache: make(map[string]interface{})}
+}
+
+func (s *BillingService) GetPricingCache() map[string]interface{} {
+	if len(s.pricingCache) > 0 {
+		return s.pricingCache
+	}
+	if amt, cur, err := s.provider.GetPlanPricing("starter"); err == nil {
+		s.pricingCache["starter_amount"] = amt
+		s.pricingCache["starter_currency"] = cur
+	} else {
+		log.Printf("[billing] failed to fetch starter pricing: %v", err)
+	}
+	if amt, cur, err := s.provider.GetPlanPricing("team"); err == nil {
+		s.pricingCache["team_amount"] = amt
+		s.pricingCache["team_currency"] = cur
+	} else {
+		log.Printf("[billing] failed to fetch team pricing: %v", err)
+	}
+	return s.pricingCache
 }
 
 func (s *BillingService) CreateCheckout(userID uuid.UUID, email string, plan string) (string, error) {
