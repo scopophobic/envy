@@ -578,6 +578,7 @@ export type BillingStatus = {
   checkout_enabled: boolean
   starter_plan_ready: boolean
   team_plan_ready: boolean
+  prices?: Record<string, any>
   message?: string
 }
 

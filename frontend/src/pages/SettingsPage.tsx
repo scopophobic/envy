@@ -40,8 +40,8 @@ const WORKSPACE_POLICIES = [
     description: 'Team workspace with tighter collaboration limits.',
     limits: {
       projects: '2',
-      members: '2',
-      environments: '10',
+      members: '3',
+      environments: '15',
       secrets: 'Unlimited',
     },
   },
@@ -239,7 +239,19 @@ export function SettingsPage() {
               </div>
             )}
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
-              {SUBSCRIPTION_PLANS.map((plan) => (
+              {SUBSCRIPTION_PLANS.map((plan) => {
+                let displayPrice = plan.priceLine
+                if (billingStatus?.prices) {
+                  const p = billingStatus.prices
+                  if (plan.id === 'starter' && p.starter_amount) {
+                    const sym = p.starter_currency === 'INR' ? '₹' : p.starter_currency === 'USD' ? '$' : p.starter_currency + ' '
+                    displayPrice = `${sym}${p.starter_amount / 100}/mo`
+                  } else if (plan.id === 'team' && p.team_amount) {
+                    const sym = p.team_currency === 'INR' ? '₹' : p.team_currency === 'USD' ? '$' : p.team_currency + ' '
+                    displayPrice = `${sym}${p.team_amount / 100}/mo`
+                  }
+                }
+                return (
                 <div
                   key={plan.id}
                   className={`rounded-xl border p-5 ${
@@ -252,7 +264,7 @@ export function SettingsPage() {
                 >
                   <div className="flex items-baseline justify-between gap-2">
                     <h3 className="text-base font-semibold text-slate-900">{plan.name}</h3>
-                    <span className="text-sm font-semibold text-slate-800">{plan.priceLine}</span>
+                    <span className="text-sm font-semibold text-slate-800">{displayPrice}</span>
                   </div>
                   <p className="mt-2 text-xs text-slate-600">{plan.detail}</p>
                   <ul className="mt-3 space-y-1.5 text-xs text-slate-700">
@@ -287,7 +299,7 @@ export function SettingsPage() {
                     <p className="mt-4 text-center text-xs font-medium text-slate-500">Current plan</p>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           </div>
 
@@ -369,7 +381,7 @@ export function SettingsPage() {
                   (() => {
                     const ownerType = orgs.find((o) => o.id === org.id)?.owner_type
                     const projectCap = ownerType === 'personal' ? 10 : 2
-                    const memberCap = ownerType === 'personal' ? 1 : 2
+                    const memberCap = ownerType === 'personal' ? 1 : 3
                     return (
                   <Card key={org.id}>
                     <div className="flex items-center gap-2 mb-3">

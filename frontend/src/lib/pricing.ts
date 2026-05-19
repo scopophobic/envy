@@ -19,7 +19,7 @@ export const SUBSCRIPTION_PLANS: PlanCard[] = [
     name: 'Free',
     priceLine: '₹0',
     detail: 'Personal vault & org limits for getting started.',
-    highlights: ['My Vault: 10 projects, 20 envs', 'Team org: 2 projects, 2 members, 10 envs', 'Unlimited secrets'],
+    highlights: ['My Vault: 10 projects, 20 envs', 'Team org: 2 projects, 3 members, 15 envs', 'Unlimited secrets'],
   },
   {
     id: 'starter',
