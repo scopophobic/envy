@@ -256,8 +256,8 @@ export function EnvironmentDetailPage() {
     <div className="space-y-6">
       {/* Toast */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-lg">
-          {toast}
+        <div className="toast-enter fixed right-4 top-4 z-50 flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-medium text-white shadow-[0_16px_45px_rgba(15,23,42,.28)]">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[11px] font-bold text-emerald-950">✓</span>{toast}
         </div>
       )}
 
@@ -276,30 +276,30 @@ export function EnvironmentDetailPage() {
             </>
           )}
         </div>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">
-          {env ? `${env.name} — Secrets` : 'Secrets'}
-        </h1>
+        <div className="mt-3 flex items-center gap-3"><span className={`status-pulse h-2.5 w-2.5 rounded-full ${env?.name.toLowerCase().includes('prod') ? 'bg-red-500 text-red-500' : 'bg-emerald-500 text-emerald-500'}`} /><h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{env ? `${env.name} — Secrets` : 'Secrets'}</h1></div>
         <p className="mt-1 text-sm text-slate-500">
           Secrets are encrypted at rest. Use the CLI commands below to pull them into your project.
         </p>
       </div>
 
       {/* CLI commands */}
-      <div className={`rounded-xl border p-4 space-y-3 ${isVault ? 'border-emerald-200 bg-emerald-50/40' : 'border-violet-100 bg-violet-50/50'}`}>
-        <div className={`text-[11px] font-semibold uppercase tracking-wide ${isVault ? 'text-emerald-600' : 'text-violet-600'}`}>
-          Pull secrets via CLI
+      <div className="relative space-y-4 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 p-5 text-white shadow-[0_18px_45px_rgba(15,23,42,.14)]">
+        <div className="pointer-events-none absolute -right-12 -top-14 h-40 w-40 rounded-full bg-violet-500/15 blur-3xl" />
+        <div className="relative flex items-center justify-between"><div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-300">
+          CLI delivery
+        </div><span className="flex items-center gap-1.5 text-[11px] text-emerald-300"><span className="status-pulse h-1.5 w-1.5 rounded-full bg-emerald-400 text-emerald-400"/>Encrypted source</span>
         </div>
 
         {/* Pull command */}
         <div>
-          <div className="text-[11px] font-medium text-slate-500 mb-1">Write to .env file</div>
-          <div className={`flex items-center gap-2 rounded-md bg-white border px-3 py-2 ${isVault ? 'border-emerald-200' : 'border-violet-200'}`}>
-            <code className="flex-1 truncate text-[13px] text-slate-800 font-mono select-all">
+          <div className="mb-1 text-[11px] font-medium text-slate-400">Write to .env file</div>
+          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.06] px-3 py-2.5">
+            <code className="flex-1 truncate font-mono text-[13px] text-slate-200 select-all">
               {pullCommand}
             </code>
             <button
               onClick={handleCopyPull}
-              className={`shrink-0 rounded border px-2.5 py-1 text-xs font-medium transition-colors ${isVault ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100'}`}
+              className="shrink-0 rounded-lg border border-white/10 bg-white/10 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/20"
             >
               {copied ? 'Copied!' : 'Copy'}
             </button>
@@ -308,23 +308,23 @@ export function EnvironmentDetailPage() {
 
         {/* Run command */}
         <div>
-          <div className="text-[11px] font-medium text-slate-500 mb-1">Inject into process (never writes to disk)</div>
-          <div className={`flex items-center gap-2 rounded-md bg-white border px-3 py-2 ${isVault ? 'border-emerald-200' : 'border-violet-200'}`}>
-            <code className="flex-1 truncate text-[13px] text-slate-800 font-mono select-all">
+          <div className="mb-1 text-[11px] font-medium text-slate-400">Inject into process <span className="text-emerald-400">· never writes to disk</span></div>
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[.06] px-3 py-2.5">
+            <code className="flex-1 truncate font-mono text-[13px] text-emerald-200 select-all">
               {runCommand}
             </code>
             <button
               onClick={handleCopyRun}
-              className={`shrink-0 rounded border px-2.5 py-1 text-xs font-medium transition-colors ${isVault ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100'}`}
+              className="shrink-0 rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200 hover:bg-emerald-400/20"
             >
               {copiedRun ? 'Copied!' : 'Copy'}
             </button>
           </div>
         </div>
 
-        <p className={`text-[11px] ${isVault ? 'text-emerald-500' : 'text-violet-500'}`}>
+        <p className="relative text-[11px] text-slate-500">
           Don&apos;t have the CLI?{' '}
-          <Link to="/#install-cli" className="font-medium underline underline-offset-2 hover:opacity-90">
+          <Link to="/#install-cli" className="font-medium text-violet-300 underline underline-offset-2 hover:text-violet-200">
             Install envo
           </Link>
           {' '}(curl, PowerShell, or{' '}

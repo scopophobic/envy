@@ -32,6 +32,7 @@ const PERMISSION_OPTIONS = [
   'members.manage',
   'audit.view',
   'org.manage',
+  'agents.manage',
 ]
 
 export function MembersPage() {
@@ -74,9 +75,9 @@ export function MembersPage() {
     getTierInfo().then(setTierInfo).catch(() => {})
     listOrgRoles(id).then((data) => {
       setRoles(data)
-      if (!inviteRoleId && data.length > 0) {
+      if (data.length > 0) {
         const firstCustom = data.find(r => !r.is_system_role)
-        setInviteRoleId((firstCustom ?? data[0]).id)
+        setInviteRoleId(current => current || (firstCustom ?? data[0]).id)
       }
     }).catch(() => {})
     listOrgInvitations(id).then(setInvites).catch(() => {})
@@ -224,8 +225,8 @@ export function MembersPage() {
     <div className="space-y-6">
       {/* Toast */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-lg">
-          {toast}
+        <div className="toast-enter fixed right-4 top-4 z-50 flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-medium text-white shadow-[0_16px_45px_rgba(15,23,42,.28)]">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[11px] font-bold text-emerald-950">✓</span>{toast}
         </div>
       )}
 
@@ -237,7 +238,7 @@ export function MembersPage() {
           <span className="mx-1">/</span>
           <span className="font-medium text-slate-900">Team</span>
         </div>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">Team Members</h1>
+        <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Team Members</h1>
         <p className="mt-1 text-sm text-slate-500">
           Manage team access and roles for {org.name}.
         </p>

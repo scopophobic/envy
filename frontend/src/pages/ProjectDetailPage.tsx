@@ -92,7 +92,7 @@ export function ProjectDetailPage() {
           <span className="mx-1">/</span>
           <span className="font-medium text-slate-900">{project.name}</span>
         </div>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">{project.name}</h1>
+        <div className="mt-3 flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-violet-200 bg-violet-50 text-violet-600 shadow-sm"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span><h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{project.name}</h1></div>
         {project.description && (
           <p className="mt-1 text-sm text-slate-500">{project.description}</p>
         )}
@@ -115,7 +115,7 @@ export function ProjectDetailPage() {
         </div>
 
         {showCreate && (
-          <Card className="mt-3">
+          <Card className="page-enter mt-4 border-violet-200/70">
             <form onSubmit={handleCreate} className="flex items-end gap-3">
               <label className="flex flex-1 flex-col gap-1">
                 <span className="text-xs font-medium text-slate-600">Name</span>
@@ -161,14 +161,14 @@ export function ProjectDetailPage() {
             </Card>
           ) : (
             envs.map((env) => (
-              <Link key={env.id} to={`/environments/${env.id}`} className="block">
-                <Card className="transition-all hover:border-slate-300 hover:shadow-sm">
+              <Link key={env.id} to={`/environments/${env.id}`} className="group block">
+                <Card interactive>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className={`h-2 w-2 rounded-full ${env.name.toLowerCase().includes('prod') ? 'bg-red-400' : env.name.toLowerCase().includes('stag') ? 'bg-amber-400' : 'bg-green-400'}`} />
+                      <div className={`status-pulse h-2 w-2 rounded-full ${env.name.toLowerCase().includes('prod') ? 'bg-red-400 text-red-400' : env.name.toLowerCase().includes('stag') ? 'bg-amber-400 text-amber-400' : 'bg-emerald-400 text-emerald-400'}`} />
                       <span className="text-sm font-medium text-slate-900">{env.name}</span>
                     </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400 transition-transform group-hover:translate-x-1 group-hover:text-violet-500">
                       <path d="M9 18l6-6-6-6" />
                     </svg>
                   </div>

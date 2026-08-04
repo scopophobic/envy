@@ -94,13 +94,31 @@ export function OrgsPage() {
 
   return (
     <div className="space-y-8">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-violet-200/70 bg-violet-50/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-700">
+            <span className="status-pulse h-1.5 w-1.5 rounded-full bg-emerald-500 text-emerald-500" />
+            Secure control plane
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Your workspaces</h1>
+          <p className="mt-1.5 max-w-xl text-sm leading-6 text-slate-500">One place to control the credentials used by people, deployments, and AI agents.</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-600">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          </span>
+          Encrypted and access controlled
+        </div>
+      </div>
+
       {/* ── My Vault ─────────────────────────────────────────── */}
       {personalOrg && (
         <Link to={`/orgs/${personalOrg.id}`} className="block group">
-          <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white p-6 transition-all group-hover:border-emerald-300 group-hover:shadow-md">
+          <div className="shine-hover relative rounded-3xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-white p-6 shadow-[0_12px_40px_rgba(16,185,129,.055)] transition-all duration-300 group-hover:-translate-y-1 group-hover:border-emerald-300 group-hover:shadow-[0_20px_55px_rgba(16,185,129,.12)] sm:p-7">
+            <div className="pointer-events-none absolute right-0 top-0 h-40 w-40 rounded-full bg-emerald-200/20 blur-3xl" />
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+                <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-200/80 bg-white text-emerald-600 shadow-sm transition-transform duration-300 group-hover:rotate-[-3deg] group-hover:scale-105">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                   </svg>
@@ -110,26 +128,28 @@ export function OrgsPage() {
                   <p className="text-sm text-slate-500">Your personal secrets — encrypted, always available</p>
                 </div>
               </div>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-300 mt-1 group-hover:text-emerald-400 transition-colors">
+              <span className="mt-1 flex h-9 w-9 items-center justify-center rounded-full border border-emerald-100 bg-white/80 text-slate-300 transition-all group-hover:translate-x-1 group-hover:border-emerald-200 group-hover:text-emerald-500">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M9 18l6-6-6-6" />
               </svg>
+              </span>
             </div>
 
             {/* Quick stats */}
             <div className="mt-5 grid grid-cols-4 gap-3">
-              <div className="rounded-lg bg-white/80 border border-emerald-100 px-3 py-2.5">
+              <div className="rounded-xl border border-emerald-100 bg-white/80 px-3 py-3 transition-colors group-hover:bg-white">
                 <div className="text-lg font-bold text-slate-900">{vaultProjects?.length ?? '—'}</div>
                 <div className="text-[11px] text-slate-500 font-medium">Projects</div>
               </div>
-              <div className="rounded-lg bg-white/80 border border-emerald-100 px-3 py-2.5">
+              <div className="rounded-xl border border-emerald-100 bg-white/80 px-3 py-3 transition-colors group-hover:bg-white">
                 <div className="text-lg font-bold text-slate-900">20</div>
                 <div className="text-[11px] text-slate-500 font-medium">Env limit</div>
               </div>
-              <div className="rounded-lg bg-white/80 border border-emerald-100 px-3 py-2.5">
+              <div className="rounded-xl border border-emerald-100 bg-white/80 px-3 py-3 transition-colors group-hover:bg-white">
                 <div className="text-lg font-bold text-slate-900">{vaultUsage?.secrets ?? '—'}</div>
                 <div className="text-[11px] text-slate-500 font-medium">Secrets</div>
               </div>
-              <div className="rounded-lg bg-white/80 border border-emerald-100 px-3 py-2.5">
+              <div className="rounded-xl border border-emerald-100 bg-white/80 px-3 py-3 transition-colors group-hover:bg-white">
                 <div className="text-lg font-bold text-slate-900">∞</div>
                 <div className="text-[11px] text-slate-500 font-medium">Secrets limit / env</div>
               </div>
@@ -233,8 +253,8 @@ export function OrgsPage() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {teamOrgs.map((o) => (
-              <Link key={o.id} to={`/orgs/${o.id}`} className="block">
-                <Card className="transition-all hover:border-slate-300 hover:shadow-sm">
+              <Link key={o.id} to={`/orgs/${o.id}`} className="group block">
+                <Card interactive>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100 text-sm font-semibold text-violet-600">
@@ -247,7 +267,7 @@ export function OrgsPage() {
                         )}
                       </div>
                     </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400 transition-transform group-hover:translate-x-1">
                       <path d="M9 18l6-6-6-6" />
                     </svg>
                   </div>

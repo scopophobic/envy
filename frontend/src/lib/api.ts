@@ -261,6 +261,85 @@ export async function deleteOrg(id: string): Promise<void> {
   await request(`/api/v1/orgs/${id}`, { method: 'DELETE', auth: true })
 }
 
+// ── Agents ──────────────────────────────────────────────────────────
+
+export type AgentStatus = 'active' | 'suspended' | 'revoked'
+export type AgentIdentity = {
+  id: string
+  org_id: string
+  name: string
+  description: string
+  status: AgentStatus
+  last_used_at?: string
+  created_at: string
+}
+export type AgentCredential = {
+  id: string
+  agent_id: string
+  name: string
+  token_prefix: string
+  expires_at?: string
+  last_used_at?: string
+  revoked_at?: string
+  created_at: string
+}
+export type AgentGrant = {
+  id: string
+  agent_id: string
+  environment_id: string
+  capability: string
+  allowed_keys: string[]
+  allow_all_secrets: boolean
+  expires_at?: string
+  revoked_at?: string
+  created_at: string
+  environment?: Environment & { project?: Project }
+}
+
+export async function listAgents(orgId: string): Promise<AgentIdentity[]> {
+  return request<AgentIdentity[]>(`/api/v1/orgs/${orgId}/agents`, { auth: true })
+}
+
+export async function createAgent(orgId: string, payload: { name: string; description?: string }): Promise<AgentIdentity> {
+  return request<AgentIdentity>(`/api/v1/orgs/${orgId}/agents`, {
+    method: 'POST', auth: true, body: JSON.stringify(payload),
+  })
+}
+
+export async function updateAgentStatus(orgId: string, agentId: string, status: AgentStatus): Promise<AgentIdentity> {
+  return request<AgentIdentity>(`/api/v1/orgs/${orgId}/agents/${agentId}`, {
+    method: 'PATCH', auth: true, body: JSON.stringify({ status }),
+  })
+}
+
+export async function listAgentCredentials(orgId: string, agentId: string): Promise<AgentCredential[]> {
+  return request<AgentCredential[]>(`/api/v1/orgs/${orgId}/agents/${agentId}/credentials`, { auth: true })
+}
+
+export async function createAgentCredential(orgId: string, agentId: string, payload: { name: string; expires_at?: string }): Promise<{ credential: AgentCredential; token: string; warning: string }> {
+  return request(`/api/v1/orgs/${orgId}/agents/${agentId}/credentials`, {
+    method: 'POST', auth: true, body: JSON.stringify(payload),
+  })
+}
+
+export async function revokeAgentCredential(orgId: string, agentId: string, credentialId: string): Promise<void> {
+  await request(`/api/v1/orgs/${orgId}/agents/${agentId}/credentials/${credentialId}`, { method: 'DELETE', auth: true })
+}
+
+export async function listAgentGrants(orgId: string, agentId: string): Promise<AgentGrant[]> {
+  return request<AgentGrant[]>(`/api/v1/orgs/${orgId}/agents/${agentId}/grants`, { auth: true })
+}
+
+export async function createAgentGrant(orgId: string, agentId: string, payload: { environment_id: string; allowed_keys: string[]; allow_all_secrets: boolean; expires_at?: string }): Promise<AgentGrant> {
+  return request<AgentGrant>(`/api/v1/orgs/${orgId}/agents/${agentId}/grants`, {
+    method: 'POST', auth: true, body: JSON.stringify(payload),
+  })
+}
+
+export async function revokeAgentGrant(orgId: string, agentId: string, grantId: string): Promise<void> {
+  await request(`/api/v1/orgs/${orgId}/agents/${agentId}/grants/${grantId}`, { method: 'DELETE', auth: true })
+}
+
 // ── Members ──────────────────────────────────────────────────────────
 
 export async function inviteMember(orgId: string, email: string, role: string, roleId?: string): Promise<{ invitation: OrgInvitation; invite_url: string; warning?: string }> {
@@ -537,7 +616,9 @@ export async function syncEnvironmentToPlatform(envId: string, payload: {
 
 export type AuditLog = {
   id: string
-  user_id: string
+  user_id?: string
+  agent_id?: string
+  actor_type: 'human' | 'agent'
   org_id: string
   action: string
   resource_type: string
@@ -545,6 +626,7 @@ export type AuditLog = {
   details: string
   created_at: string
   user?: { id: string; email: string; name: string }
+  agent?: AgentIdentity
 }
 
 export async function listAuditLogs(orgId: string): Promise<AuditLog[]> {
@@ -578,7 +660,12 @@ export type BillingStatus = {
   checkout_enabled: boolean
   starter_plan_ready: boolean
   team_plan_ready: boolean
-  prices?: Record<string, any>
+  prices?: {
+    starter_amount?: number
+    starter_currency?: string
+    team_amount?: number
+    team_currency?: string
+  }
   message?: string
 }
 

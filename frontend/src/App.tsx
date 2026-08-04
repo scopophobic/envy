@@ -9,6 +9,7 @@ const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage').then(m =>
 const OrgsPage = lazy(() => import('./pages/OrgsPage').then(m => ({ default: m.OrgsPage })))
 const OrgDetailPage = lazy(() => import('./pages/OrgDetailPage').then(m => ({ default: m.OrgDetailPage })))
 const MembersPage = lazy(() => import('./pages/MembersPage').then(m => ({ default: m.MembersPage })))
+const AgentsPage = lazy(() => import('./pages/AgentsPage').then(m => ({ default: m.AgentsPage })))
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })))
 const EnvironmentDetailPage = lazy(() => import('./pages/EnvironmentDetailPage').then(m => ({ default: m.EnvironmentDetailPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/orgs" element={<OrgsPage />} />
           <Route path="/orgs/:id" element={<OrgDetailPage />} />
           <Route path="/orgs/:id/members" element={<MembersPage />} />
+          <Route path="/orgs/:id/agents" element={<AgentsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/environments/:id" element={<EnvironmentDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />

@@ -6,22 +6,18 @@ import { getAccessToken } from '../lib/auth'
 export function InviteAcceptPage() {
   const [params] = useSearchParams()
   const nav = useNavigate()
-  const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
-  const [error, setError] = useState<string | null>(null)
   const token = params.get('token') || ''
+  const isAuthenticated = Boolean(getAccessToken())
+  const [state, setState] = useState<'loading' | 'done' | 'error'>(() => token ? 'loading' : 'error')
+  const [error, setError] = useState<string | null>(() => token ? null : 'Missing invitation token.')
 
   useEffect(() => {
-    if (!token) {
-      setError('Missing invitation token.')
-      setState('error')
-      return
-    }
-    if (!getAccessToken()) {
+    if (!token) return
+    if (!isAuthenticated) {
       sessionStorage.setItem('envo_invite_token', token)
       nav('/login', { replace: true })
       return
     }
-    setState('loading')
     acceptInvitation(token)
       .then(() => {
         setState('done')
@@ -31,7 +27,7 @@ export function InviteAcceptPage() {
         setError((e as Error).message)
         setState('error')
       })
-  }, [token, nav])
+  }, [token, isAuthenticated, nav])
 
   return (
     <div className="mx-auto max-w-lg px-6 py-16">
@@ -49,4 +45,3 @@ export function InviteAcceptPage() {
     </div>
   )
 }
-

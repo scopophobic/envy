@@ -17,31 +17,35 @@ export function Layout() {
   const orgDropRef = useRef<HTMLDivElement>(null)
   const userDropRef = useRef<HTMLDivElement>(null)
 
-  // Derive current org from URL
-  const [currentOrgId, setCurrentOrgId] = useState<string | null>(null)
+  // Organization routes carry the workspace directly. Project/environment routes
+  // are resolved asynchronously and kept alongside the path that produced them,
+  // so navigating never flashes a workspace from the previous page.
+  const directOrgId = location.pathname.match(/\/orgs\/([^/]+)/)?.[1] ?? null
+  const [resolvedOrg, setResolvedOrg] = useState<{ path: string; id: string } | null>(null)
 
   useEffect(() => {
-    const orgMatch = location.pathname.match(/\/orgs\/([^/]+)/)
-    if (orgMatch) {
-      setCurrentOrgId(orgMatch[1])
-      return
-    }
-    // For project/environment pages, resolve org from API
+    if (directOrgId) return
+
+    let cancelled = false
     const projMatch = location.pathname.match(/\/projects\/([^/]+)/)
     if (projMatch) {
       getProject(projMatch[1]).then(p => {
-        setCurrentOrgId(p.org_id)
+        if (!cancelled) setResolvedOrg({ path: location.pathname, id: p.org_id })
       }).catch(() => {})
-      return
+      return () => { cancelled = true }
     }
     const envMatch = location.pathname.match(/\/environments\/([^/]+)/)
     if (envMatch) {
       getEnvironment(envMatch[1]).then(e => {
-        setCurrentOrgId(e.org_id)
+        if (!cancelled) setResolvedOrg({ path: location.pathname, id: e.org_id })
       }).catch(() => {})
-      return
+      return () => { cancelled = true }
     }
-  }, [location.pathname])
+
+    return () => { cancelled = true }
+  }, [directOrgId, location.pathname])
+
+  const currentOrgId = directOrgId ?? (resolvedOrg?.path === location.pathname ? resolvedOrg.id : null)
 
   const currentOrg = orgs.find(o => o.id === currentOrgId)
 
@@ -70,14 +74,17 @@ export function Layout() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-slate-50">
+    <div className="app-shell flex h-screen flex-col bg-slate-50/70">
       {/* Top Nav */}
-      <header className="shrink-0 border-b border-slate-200 bg-white">
+      <header className="relative z-40 shrink-0 border-b border-slate-200/80 bg-white/85 shadow-[0_1px_16px_rgba(15,23,42,.035)] backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between px-4 sm:px-6">
           {/* Left: Logo + Org Switcher */}
           <div className="flex items-center gap-4">
             <Link to="/orgs" className="flex items-center gap-2 shrink-0">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-900 text-xs font-bold text-white">E</div>
+              <div className="shine-hover relative flex h-8 w-8 items-center justify-center rounded-[10px] bg-gradient-to-br from-slate-800 to-slate-950 text-xs font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,.18),0_4px_12px_rgba(15,23,42,.18)]">
+                <span className="relative z-10">E</span>
+                <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-emerald-400 ring-2 ring-slate-900" />
+              </div>
               <span className="text-lg font-bold text-slate-900 tracking-tight hidden sm:inline">Envo</span>
             </Link>
 
@@ -115,7 +122,7 @@ export function Layout() {
                     </svg>
                   </button>
                   {orgDropdownOpen && (
-                    <div className="absolute left-0 top-full mt-1 w-60 rounded-lg border border-slate-200 bg-white py-1 shadow-lg z-50">
+                    <div className="popover-enter absolute left-0 top-full z-50 mt-2 w-64 rounded-xl border border-slate-200/80 bg-white/95 py-1.5 shadow-[0_18px_50px_rgba(15,23,42,.16)] backdrop-blur-xl">
                       {orgs.some(o => o.owner_type === 'personal') && (
                         <>
                           {orgs.filter(o => o.owner_type === 'personal').map(o => (
@@ -219,6 +226,17 @@ export function Layout() {
                       Team
                     </NavLink>
                   )}
+                  <NavLink
+                    to={`/orgs/${currentOrgId}/agents`}
+                    className={({ isActive }) =>
+                      cn(
+                        'rounded-md px-2.5 py-1.5 text-sm transition-colors',
+                        isActive ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
+                      )
+                    }
+                  >
+                    Agents
+                  </NavLink>
                 </div>
               </>
             )}
@@ -239,7 +257,7 @@ export function Layout() {
               </svg>
             </button>
             {userDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg z-50">
+              <div className="popover-enter absolute right-0 top-full z-50 mt-2 w-60 rounded-xl border border-slate-200/80 bg-white/95 py-1.5 shadow-[0_18px_50px_rgba(15,23,42,.16)] backdrop-blur-xl">
                 {user && (
                   <div className="px-3 py-2 border-b border-slate-100">
                     <div className="text-sm font-medium text-slate-900 truncate">{user.name}</div>
@@ -306,10 +324,22 @@ export function Layout() {
         </div>
       </header>
 
+      {currentOrgId && (
+        <div className="shrink-0 overflow-x-auto border-b border-slate-200/70 bg-white/70 px-3 py-2 backdrop-blur sm:hidden scrollbar-subtle">
+          <div className="flex min-w-max items-center gap-1">
+            <NavLink to={`/orgs/${currentOrgId}`} end className={({ isActive }) => cn('rounded-lg px-3 py-1.5 text-xs font-medium', isActive ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100')}>Projects</NavLink>
+            {currentOrg?.owner_type !== 'personal' && <NavLink to={`/orgs/${currentOrgId}/members`} className={({ isActive }) => cn('rounded-lg px-3 py-1.5 text-xs font-medium', isActive ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100')}>Team</NavLink>}
+            <NavLink to={`/orgs/${currentOrgId}/agents`} className={({ isActive }) => cn('rounded-lg px-3 py-1.5 text-xs font-medium', isActive ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100')}>Agents</NavLink>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-          <Outlet />
+      <main className="scrollbar-subtle flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+          <div key={location.pathname} className="page-enter">
+            <Outlet />
+          </div>
         </div>
       </main>
     </div>

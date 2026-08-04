@@ -7,63 +7,42 @@ export function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Read tokens from URL hash (backend redirects here with tokens)
-    const hash = window.location.hash.substring(1) // Remove #
-    console.log('AuthCallback: hash =', hash)
-    
-    const params = new URLSearchParams(hash)
-    const accessToken = params.get('access_token')
-    const refreshToken = params.get('refresh_token')
-    
-    console.log('AuthCallback: accessToken exists =', !!accessToken)
-    console.log('AuthCallback: refreshToken exists =', !!refreshToken)
+    const completeLogin = async () => {
+      // Keep the token handoff in the URL fragment, then remove it immediately.
+      await Promise.resolve()
+      const params = new URLSearchParams(window.location.hash.substring(1))
+      const accessToken = params.get('access_token')
+      const refreshToken = params.get('refresh_token')
 
-    if (accessToken && refreshToken) {
       try {
-        setTokens(accessToken, refreshToken)
-        // Verify tokens were saved
-        const saved = getAccessToken()
-        if (!saved) {
-          setError('Failed to save tokens')
-          setTimeout(() => nav('/login'), 2000)
-          return
+        if (accessToken && refreshToken) {
+          setTokens(accessToken, refreshToken)
+          window.history.replaceState(null, '', window.location.pathname)
+        } else if (!getAccessToken()) {
+          throw new Error('The sign-in response was incomplete. Please try again.')
         }
-        // Clear hash from URL
-        window.history.replaceState(null, '', window.location.pathname)
+
         const inviteToken = sessionStorage.getItem('envo_invite_token')
         if (inviteToken) {
           sessionStorage.removeItem('envo_invite_token')
-          nav(`/invite/accept?token=${encodeURIComponent(inviteToken)}`)
+          nav(`/invite/accept?token=${encodeURIComponent(inviteToken)}`, { replace: true })
         } else {
-          nav('/orgs')
+          nav('/orgs', { replace: true })
         }
       } catch (e) {
-        console.error('AuthCallback error:', e)
         setError((e as Error).message)
-        setTimeout(() => nav('/login'), 2000)
-      }
-    } else {
-      // No tokens - check if we have them saved already (maybe page reload)
-      const existing = getAccessToken()
-      if (existing) {
-        const inviteToken = sessionStorage.getItem('envo_invite_token')
-        if (inviteToken) {
-          sessionStorage.removeItem('envo_invite_token')
-          nav(`/invite/accept?token=${encodeURIComponent(inviteToken)}`)
-        } else {
-          nav('/orgs')
-        }
-      } else {
-        setError('No tokens found in URL. Redirecting to login...')
-        setTimeout(() => nav('/login'), 2000)
+        setTimeout(() => nav('/login', { replace: true }), 2200)
       }
     }
+
+    void completeLogin()
   }, [nav])
 
   return (
     <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
-        <p className="text-sm text-slate-600">Completing login…</p>
+        {!error && <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-violet-600" />}
+        <p className="mt-3 text-sm text-slate-600">{error ? 'Sign-in could not be completed' : 'Completing sign-in…'}</p>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       </div>
     </div>
