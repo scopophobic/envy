@@ -72,13 +72,12 @@ func newSyncCmd(deps *rootDeps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&orgSel, "org", "", "Organization id or name (required)")
+	cmd.Flags().StringVar(&orgSel, "org", "", "Organization id or name (default: personal vault)")
 	cmd.Flags().StringVar(&projectSel, "project", "", "Project id or name (required)")
 	cmd.Flags().StringVar(&envSel, "env", "", "Environment id or name (required)")
 	cmd.Flags().StringVar(&connectionSel, "connection", "", "Platform connection id or name (required)")
 	cmd.Flags().StringVar(&targetProject, "target-project", "", "Remote deploy platform project ID (required)")
 	cmd.Flags().StringVar(&targetEnv, "target-env", "", "Remote environment (development|preview|production)")
-	_ = cmd.MarkFlagRequired("org")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("env")
 	_ = cmd.MarkFlagRequired("connection")

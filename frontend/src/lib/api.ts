@@ -1,4 +1,4 @@
-import { clearTokens, getAccessToken, getRefreshToken, setTokens, decodeJwtClaims } from './auth'
+import { clearTokens, getAccessToken, getRefreshToken, setTokens, decodeJwtClaims, subscribeToAuthChanges } from './auth'
 
 const DEFAULT_BASE = 'http://localhost:8080'
 
@@ -32,6 +32,38 @@ function isTokenExpiringSoon(): boolean {
 
 // Singleton refresh promise to avoid concurrent refresh calls
 let refreshPromise: Promise<string> | null = null
+let authGeneration = 0
+
+type ResponseCacheEntry = { value: unknown; expiresAt: number }
+const responseCache = new Map<string, ResponseCacheEntry>()
+const inFlightGets = new Map<string, Promise<unknown>>()
+let responseCacheGeneration = 0
+const parsedCacheTTL = Number(import.meta.env.VITE_API_CACHE_TTL_MS || 12_000)
+const responseCacheTTL = Number.isFinite(parsedCacheTTL) && parsedCacheTTL > 0 ? Math.min(parsedCacheTTL, 60_000) : 12_000
+
+function clearResponseCache() {
+	responseCacheGeneration++
+  responseCache.clear()
+  inFlightGets.clear()
+}
+
+// Storage events cover logout in another tab; the custom event covers this
+// tab. Either one invalidates all identity-scoped metadata immediately.
+subscribeToAuthChanges(clearResponseCache)
+
+function responseCacheKey(path: string, authenticated?: boolean) {
+  if (!authenticated) return `public:${path}`
+  const token = getAccessToken()
+  const userID = token ? decodeJwtClaims(token)?.user_id : undefined
+  return `user:${userID || 'unknown'}:${path}`
+}
+
+function hasCacheableSession() {
+	const token = getAccessToken()
+	if (!token) return false
+	const expiry = decodeJwtClaims(token)?.exp
+	return typeof expiry === 'number' && expiry * 1000 > Date.now()
+}
 
 async function ensureFreshToken(): Promise<void> {
   if (!isTokenExpiringSoon()) return
@@ -39,12 +71,16 @@ async function ensureFreshToken(): Promise<void> {
   if (!refresh) return
 
   if (!refreshPromise) {
-    refreshPromise = doRefresh(refresh).finally(() => { refreshPromise = null })
+    const generation = authGeneration
+    const tracked = doRefresh(refresh, generation).finally(() => {
+      if (refreshPromise === tracked) refreshPromise = null
+    })
+    refreshPromise = tracked
   }
   await refreshPromise
 }
 
-async function doRefresh(refresh: string): Promise<string> {
+async function doRefresh(refresh: string, generation = authGeneration): Promise<string> {
   const resp = await fetch(apiBaseUrl() + '/api/v1/auth/refresh', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -52,11 +88,21 @@ async function doRefresh(refresh: string): Promise<string> {
   })
   if (!resp.ok) {
     // Refresh failed — clear tokens and redirect to login
-    clearTokens()
-    window.location.href = '/login'
+    if (generation === authGeneration) {
+      authGeneration++
+      clearTokens()
+      clearResponseCache()
+      window.location.href = '/login'
+    }
     throw new Error('Session expired — please sign in again')
   }
   const data = await resp.json()
+
+  // A logout (or a different login) may have happened while this request was
+  // in flight. Never let the stale response restore a session that was ended.
+  if (generation !== authGeneration || getRefreshToken() !== refresh) {
+    throw new Error('Session changed while refreshing')
+  }
   setTokens(data.access_token, refresh)
   return data.access_token as string
 }
@@ -64,6 +110,40 @@ async function doRefresh(refresh: string): Promise<string> {
 async function request<T>(
   path: string,
   init: RequestInit & { auth?: boolean; _retried?: boolean } = {},
+): Promise<T> {
+	const method = (init.method || 'GET').toUpperCase()
+	if (init.auth) {
+		// Authentication is refreshed before consulting the application cache so
+		// an expired session never receives cached workspace metadata.
+		await ensureFreshToken()
+	}
+
+	const cacheable = method === 'GET' && init.cache !== 'no-store' && (!init.auth || hasCacheableSession())
+	const cacheKey = responseCacheKey(path, init.auth)
+	if (cacheable) {
+		const cached = responseCache.get(cacheKey)
+		if (cached && cached.expiresAt > Date.now()) return cached.value as T
+		if (cached) responseCache.delete(cacheKey)
+		const pending = inFlightGets.get(cacheKey)
+		if (pending) return pending as Promise<T>
+	}
+
+	const requestGeneration = responseCacheGeneration
+	const pending = performRequest<T>(path, init)
+	if (cacheable) inFlightGets.set(cacheKey, pending)
+	try {
+		const value = await pending
+		if (cacheable && requestGeneration === responseCacheGeneration) responseCache.set(cacheKey, { value, expiresAt: Date.now() + responseCacheTTL })
+		if (method !== 'GET') clearResponseCache()
+		return value
+	} finally {
+		if (cacheable && inFlightGets.get(cacheKey) === pending) inFlightGets.delete(cacheKey)
+	}
+}
+
+async function performRequest<T>(
+	path: string,
+	init: RequestInit & { auth?: boolean; _retried?: boolean },
 ): Promise<T> {
   const url = apiBaseUrl() + path
   const headers = new Headers(init.headers || {})
@@ -74,13 +154,13 @@ async function request<T>(
   }
 
   if (init.auth) {
-    // Proactively refresh if token is about to expire
-    await ensureFreshToken()
     const token = getAccessToken()
     if (token) headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const resp = await fetch(url, { ...init, headers })
+	// HTTP caches are always bypassed for API data. Safe metadata caching is the
+	// short-lived, identity-scoped in-memory layer above; secrets never enter it.
+  const resp = await fetch(url, { ...init, cache: 'no-store', headers })
   const text = await resp.text()
 
   // Automatic retry on 401 (token expired between check and request)
@@ -89,7 +169,7 @@ async function request<T>(
     if (refresh) {
       try {
         await doRefresh(refresh)
-        return request<T>(path, { ...init, _retried: true })
+				return performRequest<T>(path, { ...init, _retried: true })
       } catch {
         // refresh failed, fall through to error
       }
@@ -98,7 +178,10 @@ async function request<T>(
 
   if (!resp.ok) {
     if (resp.status === 401) {
+      authGeneration++
+      refreshPromise = null
       clearTokens()
+      clearResponseCache()
       window.location.href = '/login'
     }
     throw new Error(formatHttpError(resp.status, text))
@@ -112,7 +195,7 @@ async function request<T>(
 export type OAuthLoginUrlResp = { url: string }
 
 export async function getGoogleLoginUrl(): Promise<string> {
-  const r = await request<OAuthLoginUrlResp>('/api/v1/auth/google/login')
+  const r = await request<OAuthLoginUrlResp>('/api/v1/auth/google/login', { cache: 'no-store' })
   return r.url
 }
 
@@ -137,17 +220,24 @@ export async function refreshAccessToken(): Promise<string> {
 
 export async function logout(): Promise<void> {
   const refresh = getRefreshToken()
-  if (refresh) {
-    try {
-      await request('/api/v1/auth/logout', {
-        method: 'POST',
-        body: JSON.stringify({ refresh_token: refresh }),
-      })
-    } catch {
-      // ignore
-    }
-  }
+  authGeneration++
+  refreshPromise = null
   clearTokens()
+	clearResponseCache()
+
+  if (!refresh) return
+  try {
+    await fetch(apiBaseUrl() + '/api/v1/auth/logout', {
+      method: 'POST',
+      cache: 'no-store',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
+    })
+  } catch {
+    // The local session is already gone. Server-side expiry remains a fallback
+    // if a best-effort revocation request cannot reach the API.
+  }
 }
 
 export type User = {
@@ -556,7 +646,7 @@ export async function purgeSecret(secretId: string): Promise<void> {
 export type ExportedSecrets = Record<string, string>
 
 export async function exportSecrets(envId: string): Promise<ExportedSecrets> {
-  return request<ExportedSecrets>(`/api/v1/environments/${envId}/secrets/export`, { auth: true })
+  return request<ExportedSecrets>(`/api/v1/environments/${envId}/secrets/export`, { auth: true, cache: 'no-store' })
 }
 
 // ── Deploy Platform Connections & Manual Sync ────────────────────────

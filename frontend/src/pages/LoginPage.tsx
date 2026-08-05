@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { getGoogleRedirectUrl } from '../lib/api'
-import { getAccessToken } from '../lib/auth'
+import { clearTokens, hasValidAccessToken } from '../lib/auth'
 
 export function LoginPage() {
   const nav = useNavigate()
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (getAccessToken()) nav('/orgs')
+    if (hasValidAccessToken()) {
+      nav('/orgs')
+    } else {
+      // Do not let an expired or malformed token make the login page appear to
+      // sign the user back in.
+      clearTokens()
+    }
   }, [nav])
 
   const handleLogin = () => {

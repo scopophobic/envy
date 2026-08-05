@@ -15,9 +15,18 @@ import (
 )
 
 type Client struct {
-	baseURL string
-	http    *http.Client
-	tokens  *store.Tokens
+	baseURL    string
+	http       *http.Client
+	tokens     *store.Tokens
+	agentToken string
+}
+
+// NewAgentClient creates a client for the isolated agent API. Agent tokens are
+// never persisted by the CLI and are expected to come from ENVO_TOKEN.
+func NewAgentClient(baseURL, token string) *Client {
+	client := NewClient(baseURL, nil)
+	client.agentToken = strings.TrimSpace(token)
+	return client
 }
 
 func NewClient(baseURL string, tokens *store.Tokens) *Client {
@@ -68,10 +77,14 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any,
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if auth {
-		if c.tokens == nil || c.tokens.AccessToken == "" {
-			return nil, fmt.Errorf("not logged in (missing access token)")
+		bearer := c.agentToken
+		if bearer == "" {
+			if c.tokens == nil || c.tokens.AccessToken == "" {
+				return nil, fmt.Errorf("not logged in (missing access token)")
+			}
+			bearer = c.tokens.AccessToken
 		}
-		req.Header.Set("Authorization", "Bearer "+c.tokens.AccessToken)
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 
 	resp, err := c.http.Do(req)
@@ -105,6 +118,59 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any,
 		return resp, fmt.Errorf("failed to parse response: %w", err)
 	}
 	return resp, nil
+}
+
+// -------- Agent API --------
+
+type AgentIdentity struct {
+	ID          string `json:"id"`
+	OrgID       string `json:"org_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+}
+
+type AgentMe struct {
+	Agent          AgentIdentity `json:"agent"`
+	CredentialID   string        `json:"credential_id"`
+	CredentialName string        `json:"credential_name"`
+}
+
+func (c *Client) GetAgentMe(ctx context.Context) (*AgentMe, error) {
+	if c.agentToken == "" {
+		return nil, fmt.Errorf("ENVO_TOKEN is not set")
+	}
+	var out AgentMe
+	_, err := c.do(ctx, http.MethodGet, "/api/v1/agent/me", nil, &out, true)
+	return &out, err
+}
+
+type ResolveAgentSecretsRequest struct {
+	Project     string   `json:"project"`
+	Environment string   `json:"environment"`
+	Keys        []string `json:"keys,omitempty"`
+	Purpose     string   `json:"purpose,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
+}
+
+type ResolveAgentSecretsResponse struct {
+	AgentID       string            `json:"agent_id"`
+	EnvironmentID string            `json:"environment_id"`
+	LeaseID       string            `json:"lease_id"`
+	ExpiresAt     time.Time         `json:"expires_at"`
+	Secrets       map[string]string `json:"secrets"`
+}
+
+func (c *Client) ResolveAgentSecrets(ctx context.Context, req ResolveAgentSecretsRequest) (*ResolveAgentSecretsResponse, error) {
+	if c.agentToken == "" {
+		return nil, fmt.Errorf("ENVO_TOKEN is not set")
+	}
+	var out ResolveAgentSecretsResponse
+	_, err := c.do(ctx, http.MethodPost, "/api/v1/agent/secrets/resolve", req, &out, true)
+	if out.Secrets == nil {
+		out.Secrets = map[string]string{}
+	}
+	return &out, err
 }
 
 // -------- Auth --------
