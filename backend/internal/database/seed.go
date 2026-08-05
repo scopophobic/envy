@@ -42,6 +42,7 @@ func seedPermissions(db *gorm.DB) error {
 		{Name: models.PermissionMembersManage, Description: "Change roles and remove members"},
 		{Name: models.PermissionAuditView, Description: "View audit logs"},
 		{Name: models.PermissionOrgManage, Description: "Edit organization settings and billing"},
+		{Name: models.PermissionAgentsManage, Description: "Create agents, credentials, and secret access grants"},
 	}
 
 	for _, perm := range permissions {
@@ -83,6 +84,7 @@ func seedSystemRoles(db *gorm.DB) error {
 			models.PermissionMembersManage,
 			models.PermissionAuditView,
 			models.PermissionOrgManage,
+			models.PermissionAgentsManage,
 		},
 		models.RoleAdmin: {
 			models.PermissionSecretsRead,
@@ -94,6 +96,7 @@ func seedSystemRoles(db *gorm.DB) error {
 			models.PermissionMembersInvite,
 			models.PermissionMembersManage,
 			models.PermissionAuditView,
+			models.PermissionAgentsManage,
 		},
 		models.RoleSecretManager: {
 			models.PermissionSecretsRead,
@@ -114,7 +117,8 @@ func seedSystemRoles(db *gorm.DB) error {
 	// Create system roles
 	for roleName, permNames := range roleDefinitions {
 		var existing models.Role
-		if err := db.Where("name = ? AND is_system_role = ?", roleName, true).First(&existing).Error; err == gorm.ErrRecordNotFound {
+		err := db.Where("name = ? AND is_system_role = ?", roleName, true).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
 			// Create role
 			role := models.Role{
 				Name:         roleName,
@@ -134,11 +138,23 @@ func seedSystemRoles(db *gorm.DB) error {
 				}
 			}
 
-			if err := db.Model(&role).Association("Permissions").Append(permissions); err != nil {
+			if err := db.Model(&role).Association("Permissions").Replace(permissions); err != nil {
 				return err
 			}
 
 			log.Printf("  ✓ Created system role: %s with %d permissions", roleName, len(permissions))
+		} else if err != nil {
+			return err
+		} else {
+			var permissions []models.Permission
+			for _, permName := range permNames {
+				if perm, ok := permMap[permName]; ok {
+					permissions = append(permissions, perm)
+				}
+			}
+			if err := db.Model(&existing).Association("Permissions").Replace(permissions); err != nil {
+				return err
+			}
 		}
 	}
 

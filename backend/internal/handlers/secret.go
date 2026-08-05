@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/envo/backend/internal/database"
@@ -74,7 +73,7 @@ func (h *SecretHandler) CreateSecret(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create secret", "details": err.Error()})
+		respondInternalError(c, "Failed to create secret", err)
 		return
 	}
 
@@ -160,7 +159,7 @@ func (h *SecretHandler) UpdateSecret(c *gin.Context) {
 	ip := c.ClientIP()
 	updated, err := h.secretService.UpdateSecret(c.Request.Context(), user.ID, secretID, req.Key, req.Value, ip)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update secret", "details": err.Error()})
+		respondInternalError(c, "Failed to update secret", err)
 		return
 	}
 
@@ -261,16 +260,15 @@ func (h *SecretHandler) ExportEnvironmentSecrets(c *gin.Context) {
 	}
 
 	ip := c.ClientIP()
-	secrets, orgID, err := h.secretService.ExportEnvironmentSecrets(context.Background(), user.ID, envID, ip)
+	secrets, orgID, err := h.secretService.ExportEnvironmentSecrets(c.Request.Context(), user.ID, envID, ip)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export secrets", "details": err.Error()})
+		respondInternalError(c, "Failed to export secrets", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"org_id":        orgID,
+		"org_id":         orgID,
 		"environment_id": envID,
-		"secrets":       secrets,
+		"secrets":        secrets,
 	})
 }
-

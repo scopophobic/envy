@@ -46,7 +46,7 @@ func (h *OrgHandler) CreateOrganization(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create organization", "details": err.Error()})
+		respondInternalError(c, "Failed to create organization", err)
 		return
 	}
 
@@ -324,7 +324,7 @@ func (h *OrgHandler) ListRoles(c *gin.Context) {
 	}
 	roles, err := h.orgService.ListRoles(orgID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Failed to list roles", err)
 		return
 	}
 	c.JSON(http.StatusOK, roles)
@@ -426,7 +426,7 @@ func (h *OrgHandler) ListInvitations(c *gin.Context) {
 	}
 	invites, err := h.orgService.ListInvitations(orgID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Failed to list invitations", err)
 		return
 	}
 	c.JSON(http.StatusOK, invites)
@@ -511,7 +511,7 @@ func (h *OrgHandler) ListMyInvitations(c *gin.Context) {
 	}
 	invites, err := h.orgService.ListInvitationsForUser(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Failed to list invitations", err)
 		return
 	}
 	c.JSON(http.StatusOK, invites)

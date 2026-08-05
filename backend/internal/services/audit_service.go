@@ -22,7 +22,8 @@ func (s *AuditService) Log(ctx context.Context, userID, orgID, resourceID uuid.U
 	db := database.GetDB().WithContext(ctx)
 
 	logEntry := &models.AuditLog{
-		UserID:       userID,
+		UserID:       &userID,
+		ActorType:    models.AuditActorHuman,
 		OrgID:        orgID,
 		Action:       action,
 		ResourceType: resourceType,
@@ -34,6 +35,20 @@ func (s *AuditService) Log(ctx context.Context, userID, orgID, resourceID uuid.U
 	return db.Create(logEntry).Error
 }
 
+// LogAgent writes an audit entry attributed to a non-human identity.
+func (s *AuditService) LogAgent(ctx context.Context, agentID, orgID, resourceID uuid.UUID, action, resourceType, ip string, metadata datatypes.JSON) error {
+	return database.GetDB().WithContext(ctx).Create(&models.AuditLog{
+		AgentID:      &agentID,
+		ActorType:    models.AuditActorAgent,
+		OrgID:        orgID,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Metadata:     metadata,
+		IPAddress:    ip,
+	}).Error
+}
+
 // ListOrgLogs lists audit logs for an organization (most recent first)
 func (s *AuditService) ListOrgLogs(orgID uuid.UUID, limit int) ([]models.AuditLog, error) {
 	db := database.GetDB()
@@ -43,7 +58,7 @@ func (s *AuditService) ListOrgLogs(orgID uuid.UUID, limit int) ([]models.AuditLo
 	}
 
 	var logs []models.AuditLog
-	if err := db.Where("org_id = ?", orgID).
+	if err := db.Preload("User").Preload("Agent").Where("org_id = ?", orgID).
 		Order("created_at DESC").
 		Limit(limit).
 		Find(&logs).Error; err != nil {
@@ -52,4 +67,3 @@ func (s *AuditService) ListOrgLogs(orgID uuid.UUID, limit int) ([]models.AuditLo
 
 	return logs, nil
 }
-

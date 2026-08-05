@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -27,15 +28,17 @@ type KMSService struct {
 func NewKMSService(cfg *config.Config) (*KMSService, error) {
 	ctx := context.Background()
 
-	// Create AWS config
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithRegion(cfg.AWSRegion),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+	// Use explicit credentials only when configured. Otherwise preserve the AWS
+	// default chain so EC2/ECS workload roles can be used without stored keys.
+	options := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(cfg.AWSRegion)}
+	if cfg.AWSAccessKeyID != "" && cfg.AWSSecretAccessKey != "" {
+		options = append(options, awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.AWSAccessKeyID,
 			cfg.AWSSecretAccessKey,
 			"",
-		)),
-	)
+		)))
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
@@ -63,6 +66,7 @@ func (s *KMSService) Encrypt(ctx context.Context, plaintext string, workspaceID 
 	if err != nil {
 		return "", fmt.Errorf("failed to generate data key: %w", err)
 	}
+	defer zeroBytes(dataKeyOutput.Plaintext)
 
 	// Step 2: Encrypt the plaintext with the data key using AES-GCM
 	block, err := aes.NewCipher(dataKeyOutput.Plaintext)
@@ -131,6 +135,7 @@ func (s *KMSService) Decrypt(ctx context.Context, encryptedData string, workspac
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt data key: %w", err)
 	}
+	defer zeroBytes(decryptOutput.Plaintext)
 
 	// Step 2: Decrypt the ciphertext with the data key
 	block, err := aes.NewCipher(decryptOutput.Plaintext)
@@ -168,15 +173,37 @@ func (s *KMSService) KeyID() string {
 	return s.keyID
 }
 
-// TestConnection tests the KMS connection by describing the key
+// TestConnection verifies the exact KMS operations Envo needs at runtime.
 func (s *KMSService) TestConnection(ctx context.Context) error {
-	_, err := s.client.DescribeKey(ctx, &kms.DescribeKeyInput{
-		KeyId: aws.String(s.keyID),
+	encryptionContext := kmsContext("startup-check")
+	generated, err := s.client.GenerateDataKey(ctx, &kms.GenerateDataKeyInput{
+		KeyId:             aws.String(s.keyID),
+		KeySpec:           "AES_256",
+		EncryptionContext: encryptionContext,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to describe KMS key: %w", err)
+		return fmt.Errorf("failed to generate KMS data key: %w", err)
+	}
+	defer zeroBytes(generated.Plaintext)
+
+	decrypted, err := s.client.Decrypt(ctx, &kms.DecryptInput{
+		CiphertextBlob:    generated.CiphertextBlob,
+		EncryptionContext: encryptionContext,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to decrypt KMS data key: %w", err)
+	}
+	defer zeroBytes(decrypted.Plaintext)
+	if subtle.ConstantTimeCompare(generated.Plaintext, decrypted.Plaintext) != 1 {
+		return fmt.Errorf("KMS data key round-trip mismatch")
 	}
 	return nil
+}
+
+func zeroBytes(value []byte) {
+	for i := range value {
+		value[i] = 0
+	}
 }
 
 func kmsContext(workspaceID string) map[string]string {
