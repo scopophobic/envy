@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -49,11 +50,19 @@ func Connect(cfg *config.Config) error {
 	}
 
 	// Set connection pool settings
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	sqlDB.SetMaxIdleConns(cfg.DBMaxIdleConns)
+	sqlDB.SetMaxOpenConns(cfg.DBMaxOpenConns)
+	sqlDB.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(cfg.DBConnMaxIdleTime)
 
-	log.Println("✓ Database connected successfully")
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sqlDB.PingContext(pingCtx); err != nil {
+		_ = sqlDB.Close()
+		return fmt.Errorf("database ping failed: %w", err)
+	}
+
+	log.Printf("✓ Database connected (pool: max-open=%d, max-idle=%d)", cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
 	return nil
 }
 

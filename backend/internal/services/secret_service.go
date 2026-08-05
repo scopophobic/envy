@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/envo/backend/internal/database"
 	"github.com/envo/backend/internal/models"
@@ -27,20 +28,25 @@ var _ Encryptor = (*LocalEncryptionService)(nil)
 
 // SecretService handles secret CRUD and export
 type SecretService struct {
-	encryptor     Encryptor
-	localEncryptor Encryptor // optional; used to decrypt secrets stored with KMSKeyID "local"
-	tierService   *TierService
-	auditService  *AuditService
+	encryptor          Encryptor
+	localEncryptor     Encryptor // optional; used to decrypt secrets stored with KMSKeyID "local"
+	tierService        *TierService
+	auditService       *AuditService
+	decryptConcurrency int
 }
 
 // NewSecretService creates a new secret service. Pass localEncryptor so secrets
 // stored with local encryption can be decrypted when primary is KMS (or vice versa).
-func NewSecretService(encryptor Encryptor, localEncryptor Encryptor, tier *TierService, audit *AuditService) *SecretService {
+func NewSecretService(encryptor Encryptor, localEncryptor Encryptor, tier *TierService, audit *AuditService, decryptConcurrency int) *SecretService {
+	if decryptConcurrency <= 0 {
+		decryptConcurrency = 8
+	}
 	return &SecretService{
-		encryptor:      encryptor,
-		localEncryptor: localEncryptor,
-		tierService:    tier,
-		auditService:   audit,
+		encryptor:          encryptor,
+		localEncryptor:     localEncryptor,
+		tierService:        tier,
+		auditService:       audit,
+		decryptConcurrency: decryptConcurrency,
 	}
 }
 
@@ -272,6 +278,20 @@ func (s *SecretService) tryDecrypt(ctx context.Context, sec *models.Secret, dec,
 // ExportEnvironmentSecrets returns decrypted secrets for an environment (for CLI).
 // Secrets that fail to decrypt are skipped (and logged); decryptor is chosen by KMSKeyID, with fallback to the other if configured.
 func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, envID uuid.UUID, ip string) (map[string]string, uuid.UUID, error) {
+	result, orgID, err := s.DecryptEnvironmentSecrets(ctx, envID, nil, true)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+	if s.auditService != nil {
+		_ = s.auditService.Log(ctx, userID, orgID, envID, models.ActionSecretRead, "environment", ip, nil)
+	}
+	return result, orgID, nil
+}
+
+// DecryptEnvironmentSecrets decrypts only the approved keys. It intentionally
+// does not audit by itself so callers can attribute the read to a human or an
+// agent correctly.
+func (s *SecretService) DecryptEnvironmentSecrets(ctx context.Context, envID uuid.UUID, allowedKeys map[string]struct{}, allowAll bool) (map[string]string, uuid.UUID, error) {
 	if s.encryptor == nil {
 		return nil, uuid.Nil, fmt.Errorf("secret encryption is not configured")
 	}
@@ -286,33 +306,63 @@ func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, en
 
 	// Load secrets
 	var secrets []models.Secret
-	if err := db.Where("environment_id = ?", envID).
-		Find(&secrets).Error; err != nil {
+	query := db.Where("environment_id = ?", envID)
+	if !allowAll {
+		keys := make([]string, 0, len(allowedKeys))
+		for key := range allowedKeys {
+			keys = append(keys, key)
+		}
+		if len(keys) == 0 {
+			return map[string]string{}, env.Project.OrgID, nil
+		}
+		query = query.Where("key IN ?", keys)
+	}
+	if err := query.Find(&secrets).Error; err != nil {
 		return nil, uuid.Nil, err
 	}
 
 	wsID := env.Project.OrgID.String()
 	result := make(map[string]string, len(secrets))
-	for _, sec := range secrets {
-		dec := s.decryptorForSecret(&sec)
-		alt := s.localEncryptor
-		if dec == s.localEncryptor {
-			alt = s.encryptor
+	workers := s.decryptConcurrency
+	if workers > len(secrets) {
+		workers = len(secrets)
+	}
+	if workers > 0 {
+		jobs := make(chan models.Secret)
+		var wg sync.WaitGroup
+		var resultMu sync.Mutex
+		wg.Add(workers)
+		for range workers {
+			go func() {
+				defer wg.Done()
+				for sec := range jobs {
+					if ctx.Err() != nil {
+						continue
+					}
+					dec := s.decryptorForSecret(&sec)
+					alt := s.localEncryptor
+					if dec == s.localEncryptor {
+						alt = s.encryptor
+					}
+					plaintext, err := s.tryDecrypt(ctx, &sec, dec, alt, wsID)
+					if err != nil {
+						log.Printf("[envo] skip secret %s (%s): decrypt failed: %v", sec.ID, sec.Key, err)
+						continue
+					}
+					resultMu.Lock()
+					result[sec.Key] = plaintext
+					resultMu.Unlock()
+				}
+			}()
 		}
-		plaintext, err := s.tryDecrypt(ctx, &sec, dec, alt, wsID)
-		if err != nil {
-			log.Printf("[envo] skip secret %s (%s): decrypt failed: %v", sec.ID, sec.Key, err)
-			continue
+		for _, sec := range secrets {
+			jobs <- sec
 		}
-		result[sec.Key] = plaintext
+		close(jobs)
+		wg.Wait()
 	}
 	if len(secrets) > 0 && len(result) == 0 {
 		log.Printf("[envo] export: %d secrets in env but 0 decrypted; check KMS/local config and re-create secrets if needed", len(secrets))
-	}
-
-	// Audit read
-	if s.auditService != nil {
-		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, envID, models.ActionSecretRead, "environment", ip, nil)
 	}
 
 	return result, env.Project.Organization.ID, nil

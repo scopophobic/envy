@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,6 +34,13 @@ type AuthService struct {
 	jwtManager   *utils.JWTManager
 }
 
+// refreshTokenHash returns the irreversible database representation of a
+// refresh token. The raw token is returned to the client once and never stored.
+func refreshTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("%x", sum)
+}
+
 // NewAuthService creates a new auth service
 func NewAuthService(cfg *config.Config, jwtManager *utils.JWTManager) *AuthService {
 	oauth2Config := &oauth2.Config{
@@ -52,9 +60,15 @@ func NewAuthService(cfg *config.Config, jwtManager *utils.JWTManager) *AuthServi
 	}
 }
 
-// GetAuthURL returns the Google OAuth URL
-func (s *AuthService) GetAuthURL(state string) string {
-	return s.oauth2Config.AuthCodeURL(state, oauth2.AccessTypeOffline)
+// GetAuthURL returns the Google OAuth URL. Web login can request an account
+// chooser so signing out of Envo cannot look like an automatic sign-in caused
+// by Google's separate browser session.
+func (s *AuthService) GetAuthURL(state string, selectAccount ...bool) string {
+	opts := []oauth2.AuthCodeOption{oauth2.AccessTypeOffline}
+	if len(selectAccount) > 0 && selectAccount[0] {
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "select_account"))
+	}
+	return s.oauth2Config.AuthCodeURL(state, opts...)
 }
 
 // HandleCallback handles the OAuth callback
@@ -211,7 +225,7 @@ func (s *AuthService) generateTokens(user *models.User) (string, string, error) 
 	// Save refresh token to database
 	refreshToken := models.RefreshToken{
 		UserID:    user.ID,
-		Token:     refreshTokenString,
+		Token:     refreshTokenHash(refreshTokenString),
 		ExpiresAt: expiresAt,
 		Revoked:   false,
 	}
@@ -225,11 +239,21 @@ func (s *AuthService) generateTokens(user *models.User) (string, string, error) 
 
 // RefreshAccessToken generates a new access token from a refresh token
 func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshTokenString string) (string, error) {
-	db := database.GetDB()
+	db := database.GetDB().WithContext(ctx)
 
-	// Find refresh token
+	// New records are stored as hashes. The plaintext fallback keeps sessions
+	// created by older releases valid once, then upgrades them in place.
+	tokenHash := refreshTokenHash(refreshTokenString)
 	var refreshToken models.RefreshToken
-	if err := db.Where("token = ?", refreshTokenString).First(&refreshToken).Error; err != nil {
+	err := db.Where("token = ?", tokenHash).First(&refreshToken).Error
+	if err == gorm.ErrRecordNotFound {
+		if err = db.Where("token = ?", refreshTokenString).First(&refreshToken).Error; err == nil {
+			if updateErr := db.Model(&refreshToken).Update("token", tokenHash).Error; updateErr != nil {
+				return "", fmt.Errorf("failed to secure legacy refresh token")
+			}
+		}
+	}
+	if err != nil {
 		return "", fmt.Errorf("invalid refresh token")
 	}
 
@@ -272,9 +296,10 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshTokenString
 
 // Logout revokes a refresh token
 func (s *AuthService) Logout(ctx context.Context, refreshTokenString string) error {
-	db := database.GetDB()
+	db := database.GetDB().WithContext(ctx)
+	tokenHash := refreshTokenHash(refreshTokenString)
 
 	return db.Model(&models.RefreshToken{}).
-		Where("token = ?", refreshTokenString).
-		Update("revoked", true).Error
+		Where("token IN ?", []string{tokenHash, refreshTokenString}).
+		Updates(map[string]any{"token": tokenHash, "revoked": true}).Error
 }

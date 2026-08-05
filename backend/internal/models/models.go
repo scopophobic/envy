@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 
 	"gorm.io/gorm"
@@ -20,6 +22,9 @@ func AllModels() []interface{} {
 		&Secret{},
 		&PlatformConnection{},
 		&TierLimit{},
+		&AgentIdentity{},
+		&AgentCredential{},
+		&AgentGrant{},
 		&AuditLog{},
 		&RefreshToken{},
 		&CLILoginCode{},
@@ -36,6 +41,14 @@ func AutoMigrate(db *gorm.DB) error {
 
 // RunCustomMigrations creates indexes and constraints that GORM tags can't express.
 func RunCustomMigrations(db *gorm.DB) error {
+	// Audit entries may be produced by a human or an agent. Existing installs
+	// created user_id as NOT NULL, so relax it before agent audit writes begin.
+	if db.Migrator().HasTable(&AuditLog{}) {
+		if err := db.Exec(`ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL`).Error; err != nil {
+			return err
+		}
+	}
+
 	indexes := []struct {
 		name string
 		sql  string
@@ -69,6 +82,10 @@ func RunCustomMigrations(db *gorm.DB) error {
 			sql:  `CREATE INDEX IF NOT EXISTS idx_audit_logs_org_created ON audit_logs (org_id, created_at DESC)`,
 		},
 		{
+			name: "idx_agent_grants_live_lookup",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_agent_grants_live_lookup ON agent_grants (agent_id, environment_id, capability) WHERE revoked_at IS NULL AND deleted_at IS NULL`,
+		},
+		{
 			name: "idx_orgs_owner_personal",
 			sql:  `CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_owner_personal ON organizations (owner_id) WHERE owner_type = 'personal' AND deleted_at IS NULL`,
 		},
@@ -81,11 +98,66 @@ func RunCustomMigrations(db *gorm.DB) error {
 			log.Printf("  ✓ index %s", idx.name)
 		}
 	}
+	if err := ensureAgentManagementPermission(db); err != nil {
+		return err
+	}
 
 	if err := backfillPersonalWorkspaces(db); err != nil {
 		return err
 	}
+	if err := HashLegacyRefreshTokens(db); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+// ensureAgentManagementPermission makes the feature usable immediately after
+// a schema migration on existing installations. A later full seed remains
+// authoritative for all system-role permission sets.
+func ensureAgentManagementPermission(db *gorm.DB) error {
+	permission := Permission{Name: PermissionAgentsManage, Description: "Create agents, credentials, and secret access grants"}
+	if err := db.Where("name = ?", PermissionAgentsManage).FirstOrCreate(&permission).Error; err != nil {
+		return err
+	}
+	var roles []Role
+	if err := db.Where("is_system_role = ? AND name IN ?", true, []string{RoleOwner, RoleAdmin}).Find(&roles).Error; err != nil {
+		return err
+	}
+	for i := range roles {
+		if err := db.Model(&roles[i]).Association("Permissions").Append(&permission); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// HashLegacyRefreshTokens upgrades refresh tokens written by releases that
+// stored the raw JWT. It is safe to run repeatedly and includes revoked and
+// soft-deleted rows so database snapshots do not retain usable credentials.
+func HashLegacyRefreshTokens(db *gorm.DB) error {
+	var tokens []RefreshToken
+	if err := db.Unscoped().Select("id", "token").Find(&tokens).Error; err != nil {
+		return err
+	}
+
+	upgraded := 0
+	for _, token := range tokens {
+		decoded, decodeErr := hex.DecodeString(token.Token)
+		if decodeErr == nil && len(decoded) == sha256.Size {
+			continue
+		}
+		hash := sha256.Sum256([]byte(token.Token))
+		if err := db.Unscoped().Model(&RefreshToken{}).
+			Where("id = ?", token.ID).
+			Update("token", hex.EncodeToString(hash[:])).Error; err != nil {
+			return err
+		}
+		upgraded++
+	}
+	if upgraded > 0 {
+		log.Printf("  ✓ hashed %d legacy refresh tokens", upgraded)
+	}
 	return nil
 }
 

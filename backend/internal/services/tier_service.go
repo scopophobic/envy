@@ -2,6 +2,8 @@ package services
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/envo/backend/internal/database"
 	"github.com/envo/backend/internal/models"
@@ -9,7 +11,16 @@ import (
 )
 
 // TierService handles tier limit enforcement
-type TierService struct{}
+type cachedTierLimit struct {
+	value     int
+	expiresAt time.Time
+}
+
+type TierService struct {
+	mu       sync.RWMutex
+	limits   map[string]cachedTierLimit
+	cacheTTL time.Duration
+}
 
 const (
 	personalMaxProjects = 10
@@ -21,12 +32,24 @@ const (
 )
 
 // NewTierService creates a new tier service
-func NewTierService() *TierService {
-	return &TierService{}
+func NewTierService(cacheTTL time.Duration) *TierService {
+	if cacheTTL <= 0 {
+		cacheTTL = 5 * time.Minute
+	}
+	return &TierService{limits: make(map[string]cachedTierLimit), cacheTTL: cacheTTL}
 }
 
 // GetLimit retrieves a tier limit value
 func (s *TierService) GetLimit(tier string, limitType string) (int, error) {
+	cacheKey := tier + ":" + limitType
+	now := time.Now()
+	s.mu.RLock()
+	cached, ok := s.limits[cacheKey]
+	s.mu.RUnlock()
+	if ok && now.Before(cached.expiresAt) {
+		return cached.value, nil
+	}
+
 	db := database.GetDB()
 
 	var limit models.TierLimit
@@ -35,6 +58,9 @@ func (s *TierService) GetLimit(tier string, limitType string) (int, error) {
 		return 0, fmt.Errorf("failed to get tier limit: %w", err)
 	}
 
+	s.mu.Lock()
+	s.limits[cacheKey] = cachedTierLimit{value: limit.LimitValue, expiresAt: now.Add(s.cacheTTL)}
+	s.mu.Unlock()
 	return limit.LimitValue, nil
 }
 

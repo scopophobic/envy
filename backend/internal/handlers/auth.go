@@ -13,36 +13,62 @@ import (
 	"github.com/envo/backend/internal/middleware"
 	"github.com/envo/backend/internal/models"
 	"github.com/envo/backend/internal/services"
-	"github.com/google/uuid"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
-	authService *services.AuthService
-	tierService *services.TierService
-	frontendURL string
+	authService   *services.AuthService
+	tierService   *services.TierService
+	frontendURL   string
+	secureCookies bool
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(authService *services.AuthService, tierService *services.TierService, frontendURL string) *AuthHandler {
+func NewAuthHandler(authService *services.AuthService, tierService *services.TierService, frontendURL string, secureCookies bool) *AuthHandler {
 	return &AuthHandler{
-		authService: authService,
-		tierService: tierService,
-		frontendURL: frontendURL,
+		authService:   authService,
+		tierService:   tierService,
+		frontendURL:   frontendURL,
+		secureCookies: secureCookies,
 	}
+}
+
+func (h *AuthHandler) setOAuthCookie(c *gin.Context, name, value string, maxAge int) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(name, value, maxAge, "/", "", h.secureCookies, true)
+}
+
+func (h *AuthHandler) isAllowedFrontendRedirect(raw string) bool {
+	base, baseErr := url.Parse(strings.TrimSpace(h.frontendURL))
+	target, targetErr := url.Parse(strings.TrimSpace(raw))
+	if baseErr != nil || targetErr != nil || base.Scheme == "" || base.Host == "" {
+		return false
+	}
+	return target.Scheme == base.Scheme && target.Host == base.Host && target.User == nil
+}
+
+func newOAuthState() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // GoogleLogin initiates Google OAuth flow
 // GET /api/v1/auth/google/login
 func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 	// Generate random state
-	b := make([]byte, 32)
-	rand.Read(b)
-	state := base64.URLEncoding.EncodeToString(b)
+	state, err := newOAuthState()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start authentication"})
+		return
+	}
 
 	// Store state in session/cookie (for production, use secure session storage)
-	c.SetCookie("oauth_state", state, 600, "/", "", false, true)
+	h.setOAuthCookie(c, "oauth_state", state, 600)
 
 	// Get auth URL
 	url := h.authService.GetAuthURL(state)
@@ -56,25 +82,30 @@ func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 // GET /api/v1/auth/google/redirect
 func (h *AuthHandler) GoogleLoginRedirect(c *gin.Context) {
 	// Generate random state
-	b := make([]byte, 32)
-	rand.Read(b)
-	state := base64.URLEncoding.EncodeToString(b)
+	state, err := newOAuthState()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start authentication"})
+		return
+	}
 
 	// Store state in cookie
-	c.SetCookie("oauth_state", state, 600, "/", "", false, true)
-	
+	h.setOAuthCookie(c, "oauth_state", state, 600)
+
 	// Mark this as a web flow (not CLI)
-	c.SetCookie("oauth_flow", "web", 600, "/", "", false, true)
+	h.setOAuthCookie(c, "oauth_flow", "web", 600)
 
 	// Optional: capture intended post-login redirect (frontend or CLI flow)
 	if next := strings.TrimSpace(c.Query("next")); next != "" {
-		// only allow http(s) to reduce footguns; CLI uses localhost callback via its own cookie below
-		if u, err := url.Parse(next); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
-			c.SetCookie("post_login_next", next, 600, "/", "", false, true)
+		if !h.isAllowedFrontendRedirect(next) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "next must use the configured frontend origin"})
+			return
 		}
+		h.setOAuthCookie(c, "post_login_next", next, 600)
 	}
 
-	c.Redirect(http.StatusFound, h.authService.GetAuthURL(state))
+	// Google has its own browser session. Requiring account selection keeps a
+	// fresh web login explicit after the user signs out of Envo.
+	c.Redirect(http.StatusFound, h.authService.GetAuthURL(state, true))
 }
 
 // CLIGoogleStart starts a CLI browser login session.
@@ -88,22 +119,24 @@ func (h *AuthHandler) CLIGoogleStart(c *gin.Context) {
 	}
 
 	u, err := url.Parse(callback)
-	if err != nil || u.Scheme != "http" || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost") {
+	if err != nil || u.Scheme != "http" || u.User != nil || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "callback must be a localhost http URL"})
 		return
 	}
 
 	// Store callback in cookie (browser-scoped, survives OAuth redirect)
-	c.SetCookie("cli_callback", callback, 600, "/", "", false, true)
-	
+	h.setOAuthCookie(c, "cli_callback", callback, 600)
+
 	// Mark this as a CLI flow (not web)
-	c.SetCookie("oauth_flow", "cli", 600, "/", "", false, true)
+	h.setOAuthCookie(c, "oauth_flow", "cli", 600)
 
 	// Generate state and redirect to Google
-	b := make([]byte, 32)
-	rand.Read(b)
-	state := base64.URLEncoding.EncodeToString(b)
-	c.SetCookie("oauth_state", state, 600, "/", "", false, true)
+	state, err := newOAuthState()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start authentication"})
+		return
+	}
+	h.setOAuthCookie(c, "oauth_state", state, 600)
 
 	c.Redirect(http.StatusFound, h.authService.GetAuthURL(state))
 }
@@ -121,7 +154,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	}
 
 	// Clear state cookie
-	c.SetCookie("oauth_state", "", -1, "/", "", false, true)
+	h.setOAuthCookie(c, "oauth_state", "", -1)
 
 	// Get code
 	code := c.Query("code")
@@ -133,20 +166,20 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	// Handle callback
 	user, accessToken, refreshToken, err := h.authService.HandleCallback(c.Request.Context(), code)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to authenticate", "details": err.Error()})
+		respondInternalError(c, "Failed to authenticate", err)
 		return
 	}
 
 	// Check flow type from cookie to distinguish CLI vs web
 	flowType, _ := c.Cookie("oauth_flow")
-	c.SetCookie("oauth_flow", "", -1, "/", "", false, true) // Clear flow cookie
+	h.setOAuthCookie(c, "oauth_flow", "", -1) // Clear flow cookie
 
 	// If this is a CLI login flow, create a short-lived exchange code and redirect to the CLI callback.
 	if flowType == "cli" {
 		cliCallback, err := c.Cookie("cli_callback")
 		if err == nil && strings.TrimSpace(cliCallback) != "" {
 			// Clear cookie
-			c.SetCookie("cli_callback", "", -1, "/", "", false, true)
+			h.setOAuthCookie(c, "cli_callback", "", -1)
 
 			// Create exchange code
 			exchangeCode := uuid.NewString()
@@ -180,14 +213,14 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 
 	// Default to web flow: redirect to frontend callback URL with tokens in hash
 	var frontendCallback string
-	if frontendNext, err := c.Cookie("post_login_next"); err == nil && strings.TrimSpace(frontendNext) != "" {
+	if frontendNext, err := c.Cookie("post_login_next"); err == nil && h.isAllowedFrontendRedirect(frontendNext) {
 		// Use cookie value if set
 		frontendCallback = strings.TrimSpace(frontendNext)
-		c.SetCookie("post_login_next", "", -1, "/", "", false, true)
 	} else {
 		// Default to FRONTEND_URL/auth/callback
 		frontendCallback = h.frontendURL + "/auth/callback"
 	}
+	h.setOAuthCookie(c, "post_login_next", "", -1)
 
 	// Redirect to frontend with tokens in URL hash (not query param for security)
 	// Note: HTTP redirects don't preserve fragments, so we construct the full URL manually
@@ -238,10 +271,7 @@ func (h *AuthHandler) CLIExchange(c *gin.Context) {
 	// Generate tokens (reuse existing auth service logic)
 	accessToken, refreshToken, err := h.authService.GenerateTokensForUser(&user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to generate tokens",
-			"details": err.Error(),
-		})
+		respondInternalError(c, "Failed to generate tokens", err)
 		return
 	}
 
@@ -308,13 +338,13 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":    user.ID,
-		"email": user.Email,
-		"name":  user.Name,
-		"tier":  user.SubscriptionTier,
+		"id":             user.ID,
+		"email":          user.Email,
+		"name":           user.Name,
+		"tier":           user.SubscriptionTier,
 		"is_super_admin": user.IsSuperAdmin,
 		"oauth_provider": user.OAuthProvider,
-		"created_at": user.CreatedAt,
+		"created_at":     user.CreatedAt,
 	})
 }
 

@@ -24,7 +24,7 @@ func (h *BillingHandler) requireBilling(c *gin.Context) bool {
 		return true
 	}
 	c.JSON(http.StatusServiceUnavailable, gin.H{
-		"error": "billing_not_configured",
+		"error":   "billing_not_configured",
 		"message": "Razorpay is not configured on this API. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (and plan IDs), restart the server, and ensure the frontend VITE_API_URL points to this API—not the Vite dev port.",
 	})
 	return false
@@ -38,10 +38,10 @@ func (h *BillingHandler) Status(c *gin.Context) {
 	}
 	if h.billingService == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"checkout_enabled":    false,
-			"starter_plan_ready":    false,
-			"team_plan_ready":       false,
-			"message":               "Billing is not configured on the server.",
+			"checkout_enabled":   false,
+			"starter_plan_ready": false,
+			"team_plan_ready":    false,
+			"message":            "Billing is not configured on the server.",
 		})
 		return
 	}
@@ -162,7 +162,7 @@ func (h *BillingHandler) CreateOrder(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Failed to create payment order", err)
 		return
 	}
 
@@ -184,9 +184,9 @@ func (h *BillingHandler) VerifyPayment(c *gin.Context) {
 	}
 
 	var body struct {
-		RazorpayPaymentID   string `json:"razorpay_payment_id" binding:"required"`
-		RazorpayOrderID     string `json:"razorpay_order_id" binding:"required"`
-		RazorpaySignature   string `json:"razorpay_signature" binding:"required"`
+		RazorpayPaymentID string `json:"razorpay_payment_id" binding:"required"`
+		RazorpayOrderID   string `json:"razorpay_order_id" binding:"required"`
+		RazorpaySignature string `json:"razorpay_signature" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "razorpay_payment_id, razorpay_order_id, and razorpay_signature are required"})

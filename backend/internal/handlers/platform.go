@@ -81,7 +81,11 @@ func (h *PlatformHandler) CreateConnection(c *gin.Context) {
 		if strings.Contains(msg, "unsupported platform") || strings.Contains(msg, "required") || strings.Contains(msg, "validation failed") {
 			status = http.StatusBadRequest
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		if status == http.StatusInternalServerError {
+			respondInternalError(c, "Failed to create platform connection", err)
+		} else {
+			c.JSON(status, gin.H{"error": err.Error()})
+		}
 		return
 	}
 
@@ -164,7 +168,11 @@ func (h *PlatformHandler) SyncEnvironment(c *gin.Context) {
 		if strings.Contains(msg, "unsupported platform") || strings.Contains(msg, "required") || strings.Contains(msg, "not found") {
 			code = http.StatusBadRequest
 		}
-		c.JSON(code, gin.H{"error": err.Error()})
+		if code == http.StatusInternalServerError {
+			respondInternalError(c, "Failed to sync environment", err)
+		} else {
+			c.JSON(code, gin.H{"error": err.Error()})
+		}
 		return
 	}
 

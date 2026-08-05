@@ -11,15 +11,15 @@ import (
 type RefreshToken struct {
 	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
 	UserID    uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
-	Token     string    `gorm:"type:varchar(500);uniqueIndex;not null" json:"-"` // Never expose
+	Token     string    `gorm:"type:varchar(500);uniqueIndex;not null" json:"-"` // SHA-256 hash; legacy plaintext rows are upgraded on use
 	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
 	Revoked   bool      `gorm:"default:false" json:"revoked"`
-	
+
 	// Timestamps
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
-	
+
 	// Relationships
 	User User `gorm:"foreignKey:UserID" json:"user,omitempty"`
 }

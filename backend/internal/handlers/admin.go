@@ -20,7 +20,7 @@ func NewAdminHandler(adminService *services.AdminService) *AdminHandler {
 func (h *AdminHandler) ListUsers(c *gin.Context) {
 	users, err := h.adminService.ListUsers(c.Query("q"), 100)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Failed to list users", err)
 		return
 	}
 	c.JSON(http.StatusOK, users)
@@ -47,4 +47,3 @@ func (h *AdminHandler) UpdateUserTier(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, user)
 }
-

@@ -13,7 +13,7 @@ func SetupCORS(frontendURL string) gin.HandlerFunc {
 		AllowOrigins:     []string{frontendURL},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
+		ExposeHeaders:    []string{"Content-Length", "X-Request-ID", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "Retry-After"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	})
