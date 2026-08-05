@@ -49,6 +49,7 @@ func newRootCmd() (*cobra.Command, *rootDeps) {
 	cmd.AddCommand(newPullCmd(deps))
 	cmd.AddCommand(newRunCmd(deps))
 	cmd.AddCommand(newSyncCmd(deps))
+	cmd.AddCommand(newAgentCmd(deps))
 
 	return cmd, deps
 }

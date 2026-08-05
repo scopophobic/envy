@@ -4,6 +4,7 @@ import "os"
 
 type Config struct {
 	APIBaseURL string
+	AgentToken string
 }
 
 func Load() Config {
@@ -16,6 +17,6 @@ func Load() Config {
 
 	return Config{
 		APIBaseURL: base,
+		AgentToken: os.Getenv("ENVO_TOKEN"),
 	}
 }
-

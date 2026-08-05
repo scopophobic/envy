@@ -86,11 +86,10 @@ func newPullCmd(deps *rootDeps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&orgSel, "org", "", "Organization id or name (required)")
+	cmd.Flags().StringVar(&orgSel, "org", "", "Organization id or name (default: personal vault)")
 	cmd.Flags().StringVar(&projectSel, "project", "", "Project id or name (required)")
 	cmd.Flags().StringVar(&envSel, "env", "", "Environment id or name (required)")
 	cmd.Flags().StringVar(&outDir, "dir", "", "Directory to write .env into (default: current directory)")
-	_ = cmd.MarkFlagRequired("org")
 	_ = cmd.MarkFlagRequired("project")
 	_ = cmd.MarkFlagRequired("env")
 
@@ -99,13 +98,24 @@ func newPullCmd(deps *rootDeps) *cobra.Command {
 
 func resolveOrgID(ctx context.Context, c *api.Client, sel string) (string, error) {
 	sel = strings.TrimSpace(sel)
-	if sel == "" {
-		return "", fmt.Errorf("--org is required")
-	}
-
 	orgs, err := c.ListOrgs(ctx)
 	if err != nil {
 		return "", err
+	}
+	if sel == "" {
+		var personal []api.Org
+		for _, org := range orgs {
+			if org.OwnerType == "personal" {
+				personal = append(personal, org)
+			}
+		}
+		if len(personal) == 1 {
+			return personal[0].ID, nil
+		}
+		if len(personal) > 1 {
+			return "", fmt.Errorf("multiple personal workspaces found; use --org with a workspace id")
+		}
+		return "", fmt.Errorf("no personal workspace found; use --org to select a team workspace")
 	}
 
 	// direct id match
@@ -197,4 +207,3 @@ func resolveEnvID(ctx context.Context, c *api.Client, projectID string, sel stri
 
 	return "", fmt.Errorf("environment not found: %q", sel)
 }
-

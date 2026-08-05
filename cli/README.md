@@ -85,17 +85,33 @@ envo whoami
 | `envo login` | Sign in with Google (opens browser). Requires backend running. |
 | `envo logout` | Clear saved tokens. |
 | `envo whoami` | Show current user (name, email, tier). |
-| `envo pull --org <org> --project <project> --env <env>` | Download secrets to `.env` in current directory. |
-| `envo run --org <org> --project <project> --env <env> -- <command>` | Pull secrets, then run a command with env vars loaded. |
+| `envo pull --project <project> --env <env>` | Download secrets to `.env` in the current directory. |
+| `envo run --project <project> --env <env> -- <command>` | Pull secrets, then run a command with env vars loaded. |
+| `envo sync --project <project> --env <env> ...` | Manually sync secrets to a configured Vercel connection. |
+| `envo agent whoami` | Show the non-human identity supplied through `ENVO_TOKEN`. |
 
 **Examples:**
 ```bash
 envo login
 envo whoami
-envo pull --org "MyOrg" --project "api" --env "production"
+envo pull --project "api" --env "development"
 envo pull --org "MyOrg" --project "api" --env "production" --dir ./my-app
-envo run --org "MyOrg" --project "api" --env "production" -- npm start
+envo run --project "api" --env "development" -- npm start
 ```
+
+`--org` defaults to your personal vault. Pass an organization name or ID explicitly when working in a team workspace.
+
+### Agent and coding-harness access
+
+Create an agent, token, and environment grant in the Envo web app. Provide the token at runtime instead of running `envo login`:
+
+```bash
+export ENVO_TOKEN=envo_agent_...
+envo agent whoami
+envo run --project api --env development --keys DATABASE_URL,TEST_API_KEY -- claude
+```
+
+`envo run` resolves the live grant, strips `ENVO_TOKEN` before starting the child, injects only the approved values, and does not persist the token or secrets. `pull` is intentionally a human workflow because it writes a `.env` file. Revoking the credential, grant, or whole agent blocks future resolutions immediately.
 
 ---
 
