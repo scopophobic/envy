@@ -306,8 +306,9 @@ export function Layout() {
                 <button
                   onClick={async () => {
                     setUserDropdownOpen(false)
-                    await logout()
-                    nav('/login')
+                    const revocation = logout()
+                    nav('/login', { replace: true })
+                    await revocation
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
                 >

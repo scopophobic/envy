@@ -1,7 +1,7 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useSyncExternalStore } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { getAccessToken } from './lib/auth'
+import { getAccessToken, hasValidAccessToken, subscribeToAuthChanges } from './lib/auth'
 
 const LandingPage = lazy(() => import('./pages/LandingPage').then(m => ({ default: m.LandingPage })))
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })))
@@ -27,8 +27,8 @@ function PageLoader() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const t = getAccessToken()
-  if (!t) return <Navigate to="/login" replace />
+  const token = useSyncExternalStore(subscribeToAuthChanges, getAccessToken, () => null)
+  if (!token || !hasValidAccessToken()) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 
