@@ -30,4 +30,4 @@ Use this page as the entry point for Envo's product, technical, operational, and
 
 ## Repository entry points
 
-The root [README](../README.md) remains the concise repository landing page. Root `SECURITY.md` and `CONTRIBUTING.md` files remain as lightweight GitHub-standard pointers to the detailed documents above.
+The root [README](../README.md) remains the repository landing page. Root `SECURITY.md` and `CONTRIBUTING.md` files remain as lightweight GitHub-standard pointers to the detailed documents above.
