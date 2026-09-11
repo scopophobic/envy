@@ -67,4 +67,9 @@ const (
 	ActionAgentTokenRevoke = "agent_token_revoke"
 	ActionAgentGrantCreate = "agent_grant_create"
 	ActionAgentGrantRevoke = "agent_grant_revoke"
+	ActionAgentAccessRequested = "agent_access_requested"
+	ActionAgentAccessApproved  = "agent_access_approved"
+	ActionAgentAccessDenied    = "agent_access_denied"
+	ActionAgentAccessRevoked   = "agent_access_revoked"
+	ActionAgentAccessFailed    = "agent_access_failed"
 )

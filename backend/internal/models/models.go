@@ -25,6 +25,7 @@ func AllModels() []interface{} {
 		&AgentIdentity{},
 		&AgentCredential{},
 		&AgentGrant{},
+		&AgentAccessRequest{},
 		&AuditLog{},
 		&RefreshToken{},
 		&CLILoginCode{},
@@ -86,6 +87,10 @@ func RunCustomMigrations(db *gorm.DB) error {
 			sql:  `CREATE INDEX IF NOT EXISTS idx_agent_grants_live_lookup ON agent_grants (agent_id, environment_id, capability) WHERE revoked_at IS NULL AND deleted_at IS NULL`,
 		},
 		{
+			name: "idx_agent_access_requests_queue",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_agent_access_requests_queue ON agent_access_requests (org_id, status, created_at DESC)`,
+		},
+		{
 			name: "idx_orgs_owner_personal",
 			sql:  `CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_owner_personal ON organizations (owner_id) WHERE owner_type = 'personal' AND deleted_at IS NULL`,
 		},
@@ -116,17 +121,25 @@ func RunCustomMigrations(db *gorm.DB) error {
 // a schema migration on existing installations. A later full seed remains
 // authoritative for all system-role permission sets.
 func ensureAgentManagementPermission(db *gorm.DB) error {
-	permission := Permission{Name: PermissionAgentsManage, Description: "Create agents, credentials, and secret access grants"}
-	if err := db.Where("name = ?", PermissionAgentsManage).FirstOrCreate(&permission).Error; err != nil {
-		return err
+	permissions := []Permission{
+		{Name: PermissionAgentsManage, Description: "Create agents and credentials"},
+		{Name: PermissionAgentGrantsManage, Description: "Delegate scoped secret access to agents"},
+		{Name: PermissionAgentApprovalsManage, Description: "Approve or deny agent access requests"},
+	}
+	for i := range permissions {
+		if err := db.Where("name = ?", permissions[i].Name).FirstOrCreate(&permissions[i]).Error; err != nil {
+			return err
+		}
 	}
 	var roles []Role
 	if err := db.Where("is_system_role = ? AND name IN ?", true, []string{RoleOwner, RoleAdmin}).Find(&roles).Error; err != nil {
 		return err
 	}
 	for i := range roles {
-		if err := db.Model(&roles[i]).Association("Permissions").Append(&permission); err != nil {
-			return err
+		for j := range permissions {
+			if err := db.Model(&roles[i]).Association("Permissions").Append(&permissions[j]); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

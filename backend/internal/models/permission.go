@@ -48,6 +48,8 @@ const (
 	PermissionAuditView          = "audit.view"
 	PermissionOrgManage          = "org.manage"
 	PermissionAgentsManage       = "agents.manage"
+	PermissionAgentGrantsManage  = "agent_grants.manage"
+	PermissionAgentApprovalsManage = "agent_approvals.manage"
 )
 
 // Role represents a role with permissions

@@ -22,6 +22,7 @@ type Organization struct {
 	OwnerID   uuid.UUID `gorm:"type:uuid;not null;index" json:"owner_id"`
 	Name      string    `gorm:"type:varchar(255);not null" json:"name"`
 	OwnerType OwnerType `gorm:"type:varchar(20);not null;default:'org'" json:"owner_type"`
+	AgentAccessPaused bool `gorm:"not null;default:false" json:"agent_access_paused"`
 
 	// Timestamps
 	CreatedAt time.Time      `json:"created_at"`
