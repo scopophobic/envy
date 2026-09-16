@@ -25,6 +25,7 @@ func AllModels() []interface{} {
 		&AgentIdentity{},
 		&AgentCredential{},
 		&AgentGrant{},
+		&AgentAccessRequest{},
 		&AuditLog{},
 		&RefreshToken{},
 		&CLILoginCode{},
@@ -45,6 +46,19 @@ func RunCustomMigrations(db *gorm.DB) error {
 	// created user_id as NOT NULL, so relax it before agent audit writes begin.
 	if db.Migrator().HasTable(&AuditLog{}) {
 		if err := db.Exec(`ALTER TABLE audit_logs ALTER COLUMN user_id DROP NOT NULL`).Error; err != nil {
+			return err
+		}
+	}
+	// Agent credentials are intentionally time-bounded. Credentials issued by
+	// older versions without an expiry are made unusable during migration and
+	// can be replaced from the dashboard with an explicitly expiring token.
+	if db.Migrator().HasTable(&AgentCredential{}) {
+		if err := db.Exec(`UPDATE agent_credentials SET revoked_at = NOW() WHERE expires_at IS NULL AND revoked_at IS NULL`).Error; err != nil {
+			return err
+		}
+	}
+	if db.Migrator().HasTable(&AgentGrant{}) {
+		if err := db.Exec(`UPDATE agent_grants SET expires_at = NOW() + INTERVAL '7 days' WHERE expires_at IS NULL AND revoked_at IS NULL`).Error; err != nil {
 			return err
 		}
 	}
@@ -86,6 +100,14 @@ func RunCustomMigrations(db *gorm.DB) error {
 			sql:  `CREATE INDEX IF NOT EXISTS idx_agent_grants_live_lookup ON agent_grants (agent_id, environment_id, capability) WHERE revoked_at IS NULL AND deleted_at IS NULL`,
 		},
 		{
+			name: "idx_agent_credentials_auth_lookup",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_agent_credentials_auth_lookup ON agent_credentials (id, expires_at) WHERE revoked_at IS NULL`,
+		},
+		{
+			name: "idx_agent_access_requests_queue",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_agent_access_requests_queue ON agent_access_requests (org_id, status, created_at DESC)`,
+		},
+		{
 			name: "idx_orgs_owner_personal",
 			sql:  `CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_owner_personal ON organizations (owner_id) WHERE owner_type = 'personal' AND deleted_at IS NULL`,
 		},
@@ -96,6 +118,22 @@ func RunCustomMigrations(db *gorm.DB) error {
 			log.Printf("  ⚠ index %s: %v", idx.name, err)
 		} else {
 			log.Printf("  ✓ index %s", idx.name)
+		}
+	}
+	// A session-scoped request is idempotent even after it reaches a terminal
+	// state. A network retry must never mint a second one-time delivery.
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_access_requests_fingerprint_once ON agent_access_requests (credential_id, request_fingerprint) WHERE request_fingerprint <> ''`).Error; err != nil {
+		return err
+	}
+	constraints := []string{
+		`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_audit_actor_identity') THEN ALTER TABLE audit_logs ADD CONSTRAINT chk_audit_actor_identity CHECK ((actor_type = 'human' AND user_id IS NOT NULL AND agent_id IS NULL) OR (actor_type = 'agent' AND agent_id IS NOT NULL AND user_id IS NULL)); END IF; END $$`,
+		`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_agent_grant_approval_mode') THEN ALTER TABLE agent_grants ADD CONSTRAINT chk_agent_grant_approval_mode CHECK (approval_mode IN ('always', 'none')); END IF; END $$`,
+		`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_agent_grant_lease_range') THEN ALTER TABLE agent_grants ADD CONSTRAINT chk_agent_grant_lease_range CHECK (max_lease_seconds BETWEEN 30 AND 3600); END IF; END $$`,
+		`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_agent_access_request_status') THEN ALTER TABLE agent_access_requests ADD CONSTRAINT chk_agent_access_request_status CHECK (status IN ('pending', 'approved', 'denied', 'delivering', 'consumed', 'expired', 'revoked')); END IF; END $$`,
+	}
+	for _, statement := range constraints {
+		if err := db.Exec(statement).Error; err != nil {
+			return err
 		}
 	}
 	if err := ensureAgentManagementPermission(db); err != nil {
@@ -116,17 +154,25 @@ func RunCustomMigrations(db *gorm.DB) error {
 // a schema migration on existing installations. A later full seed remains
 // authoritative for all system-role permission sets.
 func ensureAgentManagementPermission(db *gorm.DB) error {
-	permission := Permission{Name: PermissionAgentsManage, Description: "Create agents, credentials, and secret access grants"}
-	if err := db.Where("name = ?", PermissionAgentsManage).FirstOrCreate(&permission).Error; err != nil {
-		return err
+	permissions := []Permission{
+		{Name: PermissionAgentsManage, Description: "Create agents and credentials"},
+		{Name: PermissionAgentGrantsManage, Description: "Delegate scoped secret access to agents"},
+		{Name: PermissionAgentApprovalsManage, Description: "Approve or deny agent access requests"},
+	}
+	for i := range permissions {
+		if err := db.Where("name = ?", permissions[i].Name).FirstOrCreate(&permissions[i]).Error; err != nil {
+			return err
+		}
 	}
 	var roles []Role
 	if err := db.Where("is_system_role = ? AND name IN ?", true, []string{RoleOwner, RoleAdmin}).Find(&roles).Error; err != nil {
 		return err
 	}
 	for i := range roles {
-		if err := db.Model(&roles[i]).Association("Permissions").Append(&permission); err != nil {
-			return err
+		for j := range permissions {
+			if err := db.Model(&roles[i]).Association("Permissions").Append(&permissions[j]); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -235,9 +235,10 @@ type refreshReq struct {
 }
 
 type refreshResp struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int    `json:"expires_in"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
 func (c *Client) Refresh(ctx context.Context) (*store.Tokens, error) {
@@ -253,6 +254,7 @@ func (c *Client) Refresh(ctx context.Context) (*store.Tokens, error) {
 
 	t := *c.tokens
 	t.AccessToken = out.AccessToken
+	t.RefreshToken = out.RefreshToken
 	t.TokenType = out.TokenType
 	t.ExpiresAt = time.Now().Add(time.Duration(out.ExpiresIn) * time.Second)
 	return &t, nil

@@ -238,34 +238,41 @@ func (s *AuthService) generateTokens(user *models.User) (string, string, error) 
 }
 
 // RefreshAccessToken generates a new access token from a refresh token
-func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshTokenString string) (string, error) {
+func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshTokenString string) (string, string, error) {
 	db := database.GetDB().WithContext(ctx)
+	claims, err := s.jwtManager.ValidateRefreshToken(refreshTokenString)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid refresh token")
+	}
 
 	// New records are stored as hashes. The plaintext fallback keeps sessions
 	// created by older releases valid once, then upgrades them in place.
 	tokenHash := refreshTokenHash(refreshTokenString)
 	var refreshToken models.RefreshToken
-	err := db.Where("token = ?", tokenHash).First(&refreshToken).Error
+	err = db.Where("token = ?", tokenHash).First(&refreshToken).Error
 	if err == gorm.ErrRecordNotFound {
 		if err = db.Where("token = ?", refreshTokenString).First(&refreshToken).Error; err == nil {
 			if updateErr := db.Model(&refreshToken).Update("token", tokenHash).Error; updateErr != nil {
-				return "", fmt.Errorf("failed to secure legacy refresh token")
+				return "", "", fmt.Errorf("failed to secure legacy refresh token")
 			}
 		}
 	}
 	if err != nil {
-		return "", fmt.Errorf("invalid refresh token")
+		return "", "", fmt.Errorf("invalid refresh token")
 	}
 
 	// Check if valid
 	if !refreshToken.IsValid() {
-		return "", fmt.Errorf("refresh token expired or revoked")
+		return "", "", fmt.Errorf("refresh token expired or revoked")
+	}
+	if claims.UserID != refreshToken.UserID {
+		return "", "", fmt.Errorf("invalid refresh token subject")
 	}
 
 	// Load user
 	var user models.User
 	if err := db.Preload("OrgMemberships.Role.Permissions").First(&user, refreshToken.UserID).Error; err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Get permissions
@@ -288,10 +295,26 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshTokenString
 	// Generate new access token
 	accessToken, err := s.jwtManager.GenerateAccessToken(user.ID, user.Email, permissions)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-
-	return accessToken, nil
+	newRefreshToken, newExpiresAt, err := s.jwtManager.GenerateRefreshToken(user.ID)
+	if err != nil {
+		return "", "", err
+	}
+	err = db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = ?", refreshToken.ID, false).Update("revoked", true)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("refresh token replay detected")
+		}
+		return tx.Create(&models.RefreshToken{UserID: user.ID, Token: refreshTokenHash(newRefreshToken), ExpiresAt: newExpiresAt}).Error
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return accessToken, newRefreshToken, nil
 }
 
 // Logout revokes a refresh token

@@ -60,3 +60,11 @@ func TestNormalizeKeysTrimsDeduplicatesAndSorts(t *testing.T) {
 		t.Fatalf("normalizeKeys() = %v, want %v", got, want)
 	}
 }
+
+func TestAccessKeysAreStableAndSorted(t *testing.T) {
+	access := &AgentAccess{AllowedKeys: map[string]struct{}{"Z_KEY": {}, "A_KEY": {}}}
+	got := accessKeys(access)
+	if len(got) != 2 || got[0] != "A_KEY" || got[1] != "Z_KEY" {
+		t.Fatalf("accessKeys() = %v", got)
+	}
+}

@@ -2,8 +2,9 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 
@@ -33,6 +34,15 @@ type SecretService struct {
 	tierService        *TierService
 	auditService       *AuditService
 	decryptConcurrency int
+}
+
+func secretAuditMetadata(key string, extra map[string]any) datatypes.JSON {
+	metadata := map[string]any{"key": key}
+	for name, value := range extra {
+		metadata[name] = value
+	}
+	encoded, _ := json.Marshal(metadata)
+	return datatypes.JSON(encoded)
 }
 
 // NewSecretService creates a new secret service. Pass localEncryptor so secrets
@@ -85,18 +95,27 @@ func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUI
 		}
 		existing.EncryptedValue = encrypted
 		existing.KMSKeyID = s.encryptor.KeyID()
-		if saveErr := db.Save(&existing).Error; saveErr != nil {
-			return nil, false, saveErr
-		}
-
 		var env models.Environment
-		if err := db.Preload("Project.Organization").First(&env, envID).Error; err == nil && s.auditService != nil {
-			_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, existing.ID, models.ActionSecretUpdate, "secret", ip,
-				datatypes.JSON([]byte(`{"key":"`+key+`","via":"upsert"}`)))
+		if err := db.Preload("Project.Organization").First(&env, envID).Error; err != nil {
+			return nil, false, err
+		}
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Save(&existing).Error; err != nil {
+				return err
+			}
+			if s.auditService == nil {
+				return fmt.Errorf("audit service is not configured")
+			}
+			return s.auditService.LogWithDB(tx, userID, env.Project.Organization.ID, existing.ID, models.ActionSecretUpdate, "secret", ip, secretAuditMetadata(key, map[string]any{"via": "upsert"}))
+		}); err != nil {
+			return nil, false, err
 		}
 
 		resp := existing.ToResponse()
 		return &resp, true, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, err
 	}
 
 	// New secret — check tier limits
@@ -121,14 +140,20 @@ func (s *SecretService) CreateSecret(ctx context.Context, userID, envID uuid.UUI
 		CreatedBy:      userID,
 	}
 
-	if err := db.Create(secret).Error; err != nil {
+	var env models.Environment
+	if err := db.Preload("Project.Organization").First(&env, envID).Error; err != nil {
 		return nil, false, err
 	}
-
-	var env models.Environment
-	if err := db.Preload("Project.Organization").First(&env, envID).Error; err == nil && s.auditService != nil {
-		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, secret.ID, models.ActionSecretCreate, "secret", ip,
-			datatypes.JSON([]byte(`{"key":"`+key+`"}`)))
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(secret).Error; err != nil {
+			return err
+		}
+		if s.auditService == nil {
+			return fmt.Errorf("audit service is not configured")
+		}
+		return s.auditService.LogWithDB(tx, userID, env.Project.Organization.ID, secret.ID, models.ActionSecretCreate, "secret", ip, secretAuditMetadata(key, nil))
+	}); err != nil {
+		return nil, false, err
 	}
 
 	resp := secret.ToResponse()
@@ -182,16 +207,23 @@ func (s *SecretService) UpdateSecret(ctx context.Context, userID, secretID uuid.
 			return nil, fmt.Errorf("failed to encrypt secret: %w", err)
 		}
 		secret.EncryptedValue = encrypted
-	}
-
-	if err := db.Save(&secret).Error; err != nil {
-		return nil, err
+		secret.KMSKeyID = s.encryptor.KeyID()
 	}
 
 	var env models.Environment
-	if err := db.Preload("Project.Organization").First(&env, secret.EnvironmentID).Error; err == nil && s.auditService != nil {
-		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, secret.ID, models.ActionSecretUpdate, "secret", ip,
-			datatypes.JSON([]byte(`{"key":"`+secret.Key+`"}`)))
+	if err := db.Preload("Project.Organization").First(&env, secret.EnvironmentID).Error; err != nil {
+		return nil, err
+	}
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&secret).Error; err != nil {
+			return err
+		}
+		if s.auditService == nil {
+			return fmt.Errorf("audit service is not configured")
+		}
+		return s.auditService.LogWithDB(tx, userID, env.Project.Organization.ID, secret.ID, models.ActionSecretUpdate, "secret", ip, secretAuditMetadata(secret.Key, nil))
+	}); err != nil {
+		return nil, err
 	}
 
 	resp := secret.ToResponse()
@@ -209,18 +241,19 @@ func (s *SecretService) DeleteSecret(ctx context.Context, userID, secretID uuid.
 
 	// Load env -> project -> org before deletion
 	var env models.Environment
-	_ = db.Preload("Project.Organization").First(&env, secret.EnvironmentID).Error
-
-	if err := db.Delete(&models.Secret{}, secretID).Error; err != nil {
+	if err := db.Preload("Project.Organization").First(&env, secret.EnvironmentID).Error; err != nil {
 		return err
 	}
 
-	if s.auditService != nil && env.Project.Organization.ID != uuid.Nil {
-		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, secretID, models.ActionSecretDelete, "secret", ip,
-			datatypes.JSON([]byte(`{"key":"`+secret.Key+`"}`)))
-	}
-
-	return nil
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&models.Secret{}, secretID).Error; err != nil {
+			return err
+		}
+		if s.auditService == nil || env.Project.Organization.ID == uuid.Nil {
+			return fmt.Errorf("audit context is unavailable")
+		}
+		return s.auditService.LogWithDB(tx, userID, env.Project.Organization.ID, secretID, models.ActionSecretDelete, "secret", ip, secretAuditMetadata(secret.Key, nil))
+	})
 }
 
 // PurgeSecret permanently removes a secret from the database (hard delete).
@@ -234,18 +267,19 @@ func (s *SecretService) PurgeSecret(ctx context.Context, userID, secretID uuid.U
 	}
 
 	var env models.Environment
-	_ = db.Preload("Project.Organization").First(&env, secret.EnvironmentID).Error
-
-	if err := db.Unscoped().Delete(&models.Secret{}, secretID).Error; err != nil {
+	if err := db.Preload("Project.Organization").First(&env, secret.EnvironmentID).Error; err != nil {
 		return err
 	}
 
-	if s.auditService != nil && env.Project.Organization.ID != uuid.Nil {
-		_ = s.auditService.Log(ctx, userID, env.Project.Organization.ID, secretID, "secret.purge", "secret", ip,
-			datatypes.JSON([]byte(`{"key":"`+secret.Key+`","permanent":true}`)))
-	}
-
-	return nil
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Delete(&models.Secret{}, secretID).Error; err != nil {
+			return err
+		}
+		if s.auditService == nil || env.Project.Organization.ID == uuid.Nil {
+			return fmt.Errorf("audit context is unavailable")
+		}
+		return s.auditService.LogWithDB(tx, userID, env.Project.Organization.ID, secretID, "secret.purge", "secret", ip, secretAuditMetadata(secret.Key, map[string]any{"permanent": true}))
+	})
 }
 
 // decryptorForSecret returns the primary encryptor to use for this secret (by KMSKeyID and value format).
@@ -276,14 +310,19 @@ func (s *SecretService) tryDecrypt(ctx context.Context, sec *models.Secret, dec,
 }
 
 // ExportEnvironmentSecrets returns decrypted secrets for an environment (for CLI).
-// Secrets that fail to decrypt are skipped (and logged); decryptor is chosen by KMSKeyID, with fallback to the other if configured.
+// Any decryption failure rejects the full export; decryptor is chosen by KMSKeyID,
+// with fallback to the other configured encryptor.
 func (s *SecretService) ExportEnvironmentSecrets(ctx context.Context, userID, envID uuid.UUID, ip string) (map[string]string, uuid.UUID, error) {
 	result, orgID, err := s.DecryptEnvironmentSecrets(ctx, envID, nil, true)
 	if err != nil {
 		return nil, uuid.Nil, err
 	}
 	if s.auditService != nil {
-		_ = s.auditService.Log(ctx, userID, orgID, envID, models.ActionSecretRead, "environment", ip, nil)
+		if err := s.auditService.Log(ctx, userID, orgID, envID, models.ActionSecretRead, "environment", ip, nil); err != nil {
+			return nil, uuid.Nil, fmt.Errorf("failed to persist secret access audit: %w", err)
+		}
+	} else {
+		return nil, uuid.Nil, fmt.Errorf("audit service is not configured")
 	}
 	return result, orgID, nil
 }
@@ -303,6 +342,9 @@ func (s *SecretService) DecryptEnvironmentSecrets(ctx context.Context, envID uui
 	if err := db.Preload("Project.Organization").First(&env, envID).Error; err != nil {
 		return nil, uuid.Nil, err
 	}
+	if env.Project.ID == uuid.Nil || env.Project.Organization.ID == uuid.Nil {
+		return nil, uuid.Nil, fmt.Errorf("environment project or organization is no longer active")
+	}
 
 	// Load secrets
 	var secrets []models.Secret
@@ -320,6 +362,9 @@ func (s *SecretService) DecryptEnvironmentSecrets(ctx context.Context, envID uui
 	if err := query.Find(&secrets).Error; err != nil {
 		return nil, uuid.Nil, err
 	}
+	if !allowAll && len(secrets) != len(allowedKeys) {
+		return nil, env.Project.OrgID, fmt.Errorf("one or more approved secret keys no longer exist")
+	}
 
 	wsID := env.Project.OrgID.String()
 	result := make(map[string]string, len(secrets))
@@ -329,6 +374,7 @@ func (s *SecretService) DecryptEnvironmentSecrets(ctx context.Context, envID uui
 	}
 	if workers > 0 {
 		jobs := make(chan models.Secret)
+		decryptErrors := make(chan error, len(secrets))
 		var wg sync.WaitGroup
 		var resultMu sync.Mutex
 		wg.Add(workers)
@@ -346,7 +392,7 @@ func (s *SecretService) DecryptEnvironmentSecrets(ctx context.Context, envID uui
 					}
 					plaintext, err := s.tryDecrypt(ctx, &sec, dec, alt, wsID)
 					if err != nil {
-						log.Printf("[envo] skip secret %s (%s): decrypt failed: %v", sec.ID, sec.Key, err)
+						decryptErrors <- fmt.Errorf("secret %s could not be decrypted: %w", sec.ID, err)
 						continue
 					}
 					resultMu.Lock()
@@ -360,9 +406,10 @@ func (s *SecretService) DecryptEnvironmentSecrets(ctx context.Context, envID uui
 		}
 		close(jobs)
 		wg.Wait()
-	}
-	if len(secrets) > 0 && len(result) == 0 {
-		log.Printf("[envo] export: %d secrets in env but 0 decrypted; check KMS/local config and re-create secrets if needed", len(secrets))
+		close(decryptErrors)
+		if err, ok := <-decryptErrors; ok {
+			return nil, env.Project.OrgID, err
+		}
 	}
 
 	return result, env.Project.Organization.ID, nil

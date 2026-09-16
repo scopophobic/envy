@@ -103,7 +103,7 @@ async function doRefresh(refresh: string, generation = authGeneration): Promise<
   if (generation !== authGeneration || getRefreshToken() !== refresh) {
     throw new Error('Session changed while refreshing')
   }
-  setTokens(data.access_token, refresh)
+  setTokens(data.access_token, data.refresh_token)
   return data.access_token as string
 }
 
@@ -205,7 +205,7 @@ export function getGoogleRedirectUrl(frontendCallbackUrl: string): string {
   return `${base}/api/v1/auth/google/redirect?next=${next}`
 }
 
-export type RefreshResp = { access_token: string; token_type: string; expires_in: number }
+export type RefreshResp = { access_token: string; refresh_token: string; token_type: string; expires_in: number }
 
 export async function refreshAccessToken(): Promise<string> {
   const refresh = getRefreshToken()
@@ -214,7 +214,7 @@ export async function refreshAccessToken(): Promise<string> {
     method: 'POST',
     body: JSON.stringify({ refresh_token: refresh }),
   })
-  setTokens(r.access_token, refresh)
+  setTokens(r.access_token, r.refresh_token)
   return r.access_token
 }
 

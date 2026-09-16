@@ -43,6 +43,8 @@ func seedPermissions(db *gorm.DB) error {
 		{Name: models.PermissionAuditView, Description: "View audit logs"},
 		{Name: models.PermissionOrgManage, Description: "Edit organization settings and billing"},
 		{Name: models.PermissionAgentsManage, Description: "Create agents, credentials, and secret access grants"},
+		{Name: models.PermissionAgentGrantsManage, Description: "Delegate scoped secret access to agents"},
+		{Name: models.PermissionAgentApprovalsManage, Description: "Approve or deny agent access requests"},
 	}
 
 	for _, perm := range permissions {
@@ -85,6 +87,8 @@ func seedSystemRoles(db *gorm.DB) error {
 			models.PermissionAuditView,
 			models.PermissionOrgManage,
 			models.PermissionAgentsManage,
+			models.PermissionAgentGrantsManage,
+			models.PermissionAgentApprovalsManage,
 		},
 		models.RoleAdmin: {
 			models.PermissionSecretsRead,
@@ -97,6 +101,8 @@ func seedSystemRoles(db *gorm.DB) error {
 			models.PermissionMembersManage,
 			models.PermissionAuditView,
 			models.PermissionAgentsManage,
+			models.PermissionAgentGrantsManage,
+			models.PermissionAgentApprovalsManage,
 		},
 		models.RoleSecretManager: {
 			models.PermissionSecretsRead,

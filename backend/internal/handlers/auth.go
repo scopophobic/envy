@@ -40,6 +40,11 @@ func (h *AuthHandler) setOAuthCookie(c *gin.Context, name, value string, maxAge 
 	c.SetCookie(name, value, maxAge, "/", "", h.secureCookies, true)
 }
 
+func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string, maxAge int) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("envo_refresh", value, maxAge, "/api/v1/auth", "", h.secureCookies, true)
+}
+
 func (h *AuthHandler) isAllowedFrontendRedirect(raw string) bool {
 	base, baseErr := url.Parse(strings.TrimSpace(h.frontendURL))
 	target, targetErr := url.Parse(strings.TrimSpace(raw))
@@ -200,6 +205,13 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 				})
 				return
 			}
+			// The callback created a token pair before the flow cookie identified
+			// this as CLI login. Revoke that unused refresh credential; the CLI
+			// receives a fresh pair only after consuming the one-time code.
+			if err := h.authService.Logout(c.Request.Context(), refreshToken); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to secure CLI login session"})
+				return
+			}
 
 			redir, _ := url.Parse(cliCallback)
 			q := redir.Query()
@@ -224,9 +236,8 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 
 	// Redirect to frontend with tokens in URL hash (not query param for security)
 	// Note: HTTP redirects don't preserve fragments, so we construct the full URL manually
-	fragment := fmt.Sprintf("access_token=%s&refresh_token=%s&token_type=Bearer&expires_in=900",
-		url.QueryEscape(accessToken),
-		url.QueryEscape(refreshToken))
+	h.setRefreshCookie(c, refreshToken, 30*24*60*60)
+	fragment := fmt.Sprintf("access_token=%s&token_type=Bearer&expires_in=900", url.QueryEscape(accessToken))
 	redirectURL := frontendCallback + "#" + fragment
 	c.Redirect(http.StatusFound, redirectURL)
 }
@@ -256,8 +267,15 @@ func (h *AuthHandler) CLIExchange(c *gin.Context) {
 	}
 
 	usedAt := now
-	if err := db.Model(&models.CLILoginCode{}).Where("id = ?", rec.ID).Update("used_at", usedAt).Error; err != nil {
+	consume := db.Model(&models.CLILoginCode{}).
+		Where("id = ? AND used_at IS NULL AND expires_at > ?", rec.ID, now).
+		Update("used_at", usedAt)
+	if consume.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark code used"})
+		return
+	}
+	if consume.RowsAffected != 1 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Code expired or already used"})
 		return
 	}
 
@@ -287,42 +305,54 @@ func (h *AuthHandler) CLIExchange(c *gin.Context) {
 // POST /api/v1/auth/refresh
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req struct {
-		RefreshToken string `json:"refresh_token" binding:"required"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	usingCookie := false
+	if strings.TrimSpace(req.RefreshToken) == "" {
+		cookieToken, err := c.Cookie("envo_refresh")
+		if err != nil || strings.TrimSpace(cookieToken) == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh credential required"})
+			return
+		}
+		req.RefreshToken = cookieToken
+		usingCookie = true
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request", "details": err.Error()})
-		return
-	}
-
-	accessToken, err := h.authService.RefreshAccessToken(c.Request.Context(), req.RefreshToken)
+	accessToken, refreshToken, err := h.authService.RefreshAccessToken(c.Request.Context(), req.RefreshToken)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired refresh token"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"access_token": accessToken,
 		"token_type":   "Bearer",
 		"expires_in":   900, // 15 minutes
-	})
+	}
+	h.setRefreshCookie(c, refreshToken, 30*24*60*60)
+	if !usingCookie {
+		response["refresh_token"] = refreshToken
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // Logout revokes the refresh token
 // POST /api/v1/auth/logout
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req struct {
-		RefreshToken string `json:"refresh_token" binding:"required"`
+		RefreshToken string `json:"refresh_token"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-		return
+	_ = c.ShouldBindJSON(&req)
+	if strings.TrimSpace(req.RefreshToken) == "" {
+		req.RefreshToken, _ = c.Cookie("envo_refresh")
 	}
-
-	if err := h.authService.Logout(c.Request.Context(), req.RefreshToken); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout"})
-		return
+	h.setRefreshCookie(c, "", -1)
+	if req.RefreshToken != "" {
+		if err := h.authService.Logout(c.Request.Context(), req.RefreshToken); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})

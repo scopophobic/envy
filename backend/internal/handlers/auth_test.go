@@ -49,3 +49,18 @@ func TestProductionOAuthCookieAttributes(t *testing.T) {
 		}
 	}
 }
+
+func TestRefreshCookieIsHttpOnlyAndScopedToAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewAuthHandler(nil, nil, "https://app.example.com", true)
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+
+	handler.setRefreshCookie(context, "refresh", 3600)
+	cookie := response.Header().Get("Set-Cookie")
+	for _, attribute := range []string{"HttpOnly", "Secure", "SameSite=Lax", "Path=/api/v1/auth"} {
+		if !strings.Contains(cookie, attribute) {
+			t.Errorf("cookie %q does not contain %s", cookie, attribute)
+		}
+	}
+}

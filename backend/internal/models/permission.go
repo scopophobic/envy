@@ -37,17 +37,19 @@ func (Permission) TableName() string {
 
 // Predefined permissions
 const (
-	PermissionSecretsRead        = "secrets.read"
-	PermissionSecretsCreate      = "secrets.create"
-	PermissionSecretsUpdate      = "secrets.update"
-	PermissionSecretsDelete      = "secrets.delete"
-	PermissionProjectsManage     = "projects.manage"
-	PermissionEnvironmentsManage = "environments.manage"
-	PermissionMembersInvite      = "members.invite"
-	PermissionMembersManage      = "members.manage"
-	PermissionAuditView          = "audit.view"
-	PermissionOrgManage          = "org.manage"
-	PermissionAgentsManage       = "agents.manage"
+	PermissionSecretsRead          = "secrets.read"
+	PermissionSecretsCreate        = "secrets.create"
+	PermissionSecretsUpdate        = "secrets.update"
+	PermissionSecretsDelete        = "secrets.delete"
+	PermissionProjectsManage       = "projects.manage"
+	PermissionEnvironmentsManage   = "environments.manage"
+	PermissionMembersInvite        = "members.invite"
+	PermissionMembersManage        = "members.manage"
+	PermissionAuditView            = "audit.view"
+	PermissionOrgManage            = "org.manage"
+	PermissionAgentsManage         = "agents.manage"
+	PermissionAgentGrantsManage    = "agent_grants.manage"
+	PermissionAgentApprovalsManage = "agent_approvals.manage"
 )
 
 // Role represents a role with permissions

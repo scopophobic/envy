@@ -144,6 +144,36 @@ func RequireOrgPermission(paramName string, permission string) gin.HandlerFunc {
 	}
 }
 
+// RequireAnyOrgPermission validates that the user has at least one requested
+// permission in the organization named by the route parameter.
+func RequireAnyOrgPermission(paramName string, permissions ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, err := GetCurrentUser(c)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+			c.Abort()
+			return
+		}
+		orgID, err := uuid.Parse(c.Param(paramName))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+			c.Abort()
+			return
+		}
+		hasAccess, _ := CheckWorkspaceAccess(user, orgID)
+		if hasAccess {
+			for _, permission := range permissions {
+				if HasPermissionInOrg(user, orgID, permission) {
+					c.Next()
+					return
+				}
+			}
+		}
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		c.Abort()
+	}
+}
+
 // RequireProjectPermission validates permission in the workspace that owns :paramName project.
 func RequireProjectPermission(paramName string, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
