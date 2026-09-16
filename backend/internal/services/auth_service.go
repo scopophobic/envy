@@ -253,7 +253,7 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshTokenString
 	if err == gorm.ErrRecordNotFound {
 		if err = db.Where("token = ?", refreshTokenString).First(&refreshToken).Error; err == nil {
 			if updateErr := db.Model(&refreshToken).Update("token", tokenHash).Error; updateErr != nil {
-					return "", "", fmt.Errorf("failed to secure legacy refresh token")
+				return "", "", fmt.Errorf("failed to secure legacy refresh token")
 			}
 		}
 	}

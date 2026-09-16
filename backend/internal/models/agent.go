@@ -18,12 +18,13 @@ const (
 	AgentApprovalAlways = "always"
 	AgentApprovalNone   = "none"
 
-	AccessRequestPending   = "pending"
-	AccessRequestApproved  = "approved"
-	AccessRequestDenied    = "denied"
+	AccessRequestPending    = "pending"
+	AccessRequestApproved   = "approved"
+	AccessRequestDenied     = "denied"
 	AccessRequestDelivering = "delivering"
-	AccessRequestConsumed  = "consumed"
-	AccessRequestRevoked   = "revoked"
+	AccessRequestConsumed   = "consumed"
+	AccessRequestExpired    = "expired"
+	AccessRequestRevoked    = "revoked"
 )
 
 // AgentIdentity is a non-human identity owned by an organization.
@@ -106,29 +107,30 @@ type AgentGrant struct {
 // secret values. It binds approval to an agent credential and request context
 // so approval cannot be replayed with broader parameters.
 type AgentAccessRequest struct {
-	ID                uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	OrgID             uuid.UUID      `gorm:"type:uuid;not null;index" json:"org_id"`
-	AgentID           uuid.UUID      `gorm:"type:uuid;not null;index" json:"agent_id"`
-	CredentialID      uuid.UUID      `gorm:"type:uuid;not null;index" json:"credential_id"`
-	EnvironmentID     uuid.UUID      `gorm:"type:uuid;not null;index" json:"environment_id"`
-	GrantIDs          datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"grant_ids"`
-	RequestedKeys     datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"requested_keys"`
-	AllowAllSecrets   bool           `gorm:"not null;default:false" json:"allow_all_secrets"`
-	Purpose           string         `gorm:"type:varchar(200);not null" json:"purpose"`
-	ExternalSessionID string         `gorm:"type:varchar(200);not null" json:"session_id"`
-	Status            string         `gorm:"type:varchar(20);not null;index" json:"status"`
-	DecisionReason    string         `gorm:"type:varchar(500)" json:"decision_reason,omitempty"`
-	DecidedBy         *uuid.UUID     `gorm:"type:uuid;index" json:"decided_by,omitempty"`
-	DecidedAt         *time.Time     `json:"decided_at,omitempty"`
-	ExpiresAt         time.Time      `gorm:"not null;index" json:"expires_at"`
-	UsedAt            *time.Time     `json:"used_at,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
+	ID                 uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	OrgID              uuid.UUID      `gorm:"type:uuid;not null;index" json:"org_id"`
+	AgentID            uuid.UUID      `gorm:"type:uuid;not null;index" json:"agent_id"`
+	CredentialID       uuid.UUID      `gorm:"type:uuid;not null;index" json:"credential_id"`
+	EnvironmentID      uuid.UUID      `gorm:"type:uuid;not null;index" json:"environment_id"`
+	GrantIDs           datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"grant_ids"`
+	RequestedKeys      datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"requested_keys"`
+	AllowAllSecrets    bool           `gorm:"not null;default:false" json:"allow_all_secrets"`
+	Purpose            string         `gorm:"type:varchar(200);not null" json:"purpose"`
+	ExternalSessionID  string         `gorm:"type:varchar(200);not null" json:"session_id"`
+	RequestFingerprint string         `gorm:"type:char(64);not null;default:'';index" json:"-"`
+	Status             string         `gorm:"type:varchar(20);not null;index" json:"status"`
+	DecisionReason     string         `gorm:"type:varchar(500)" json:"decision_reason,omitempty"`
+	DecidedBy          *uuid.UUID     `gorm:"type:uuid;index" json:"decided_by,omitempty"`
+	DecidedAt          *time.Time     `json:"decided_at,omitempty"`
+	ExpiresAt          time.Time      `gorm:"not null;index" json:"expires_at"`
+	UsedAt             *time.Time     `json:"used_at,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
 
-	Agent       AgentIdentity  `gorm:"foreignKey:AgentID" json:"agent,omitempty"`
+	Agent       AgentIdentity   `gorm:"foreignKey:AgentID" json:"agent,omitempty"`
 	Credential  AgentCredential `gorm:"foreignKey:CredentialID" json:"credential,omitempty"`
-	Environment Environment    `gorm:"foreignKey:EnvironmentID" json:"environment,omitempty"`
-	Approver    *User          `gorm:"foreignKey:DecidedBy" json:"approver,omitempty"`
+	Environment Environment     `gorm:"foreignKey:EnvironmentID" json:"environment,omitempty"`
+	Approver    *User           `gorm:"foreignKey:DecidedBy" json:"approver,omitempty"`
 }
 
 func (r *AgentAccessRequest) BeforeCreate(_ *gorm.DB) error {

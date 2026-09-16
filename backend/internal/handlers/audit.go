@@ -2,6 +2,9 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/envo/backend/internal/middleware"
 	"github.com/envo/backend/internal/services"
@@ -36,12 +39,22 @@ func (h *AuditHandler) ListOrgAuditLogs(c *gin.Context) {
 		return
 	}
 
-	logs, err := h.auditService.ListOrgLogs(orgID, 100)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	var before *time.Time
+	if raw := strings.TrimSpace(c.Query("before")); raw != "" {
+		parsed, parseErr := time.Parse(time.RFC3339, raw)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "before must be RFC3339"})
+			return
+		}
+		before = &parsed
+	}
+	logs, err := h.auditService.QueryOrgLogs(c.Request.Context(), orgID, services.AuditQuery{Limit: limit, ActorType: c.Query("actor_type"), Action: c.Query("action"), ResourceType: c.Query("resource_type"), Before: before})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list audit logs"})
 		return
 	}
 
+	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, logs)
 }
-

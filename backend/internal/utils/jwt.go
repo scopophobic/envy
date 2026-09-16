@@ -19,9 +19,9 @@ type Claims struct {
 
 // JWTManager handles JWT token generation and validation
 type JWTManager struct {
-	secretKey             string
-	accessTokenDuration   time.Duration
-	refreshTokenDuration  time.Duration
+	secretKey            string
+	accessTokenDuration  time.Duration
+	refreshTokenDuration time.Duration
 }
 
 // NewJWTManager creates a new JWT manager
@@ -66,7 +66,7 @@ func (m *JWTManager) GenerateRefreshToken(userID uuid.UUID) (string, time.Time, 
 	expiresAt := time.Now().Add(m.refreshTokenDuration)
 	now := time.Now()
 	claims := Claims{
-		UserID: userID,
+		UserID:    userID,
 		TokenType: "refresh",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        uuid.New().String(), // unique so DB unique constraint on token never collides

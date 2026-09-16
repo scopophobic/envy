@@ -127,6 +127,7 @@ func (h *AgentHandler) ListCredentials(c *gin.Context) {
 		respondInternalError(c, "Failed to list agent credentials", err)
 		return
 	}
+	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, credentials)
 }
 
@@ -195,6 +196,7 @@ func (h *AgentHandler) ListGrants(c *gin.Context) {
 		respondInternalError(c, "Failed to list agent grants", err)
 		return
 	}
+	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, grants)
 }
 
@@ -211,13 +213,15 @@ func (h *AgentHandler) CreateGrant(c *gin.Context) {
 		EnvironmentID   uuid.UUID  `json:"environment_id" binding:"required"`
 		AllowedKeys     []string   `json:"allowed_keys"`
 		AllowAllSecrets bool       `json:"allow_all_secrets"`
+		ApprovalMode    string     `json:"approval_mode"`
+		MaxLeaseSeconds int        `json:"max_lease_seconds"`
 		ExpiresAt       *time.Time `json:"expires_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "A valid environment and access policy are required"})
 		return
 	}
-	grant, err := h.agents.CreateGrant(c.Request.Context(), userID, orgID, agentID, req.EnvironmentID, req.AllowedKeys, req.AllowAllSecrets, req.ExpiresAt, c.ClientIP())
+	grant, err := h.agents.CreateGrant(c.Request.Context(), userID, orgID, agentID, req.EnvironmentID, req.AllowedKeys, req.AllowAllSecrets, req.ApprovalMode, req.MaxLeaseSeconds, req.ExpiresAt, c.ClientIP())
 	if errors.Is(err, services.ErrAgentNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -274,13 +278,14 @@ func (h *AgentHandler) ResolveSecrets(c *gin.Context) {
 	// and key names, never arbitrary prompts or source code.
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 	var req struct {
-		Project     string   `json:"project" binding:"required"`
-		Environment string   `json:"environment" binding:"required"`
-		Keys        []string `json:"keys"`
-		Purpose     string   `json:"purpose"`
-		SessionID   string   `json:"session_id"`
+		Project         string     `json:"project" binding:"required"`
+		Environment     string     `json:"environment" binding:"required"`
+		Keys            []string   `json:"keys"`
+		Purpose         string     `json:"purpose"`
+		SessionID       string     `json:"session_id"`
+		AccessRequestID *uuid.UUID `json:"access_request_id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil && req.AccessRequestID == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Project and environment are required"})
 		return
 	}
@@ -288,43 +293,161 @@ func (h *AgentHandler) ResolveSecrets(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Agent request metadata or key list is too large"})
 		return
 	}
-	access, err := h.agents.AuthorizeResolve(c.Request.Context(), agent, req.Project, req.Environment, req.Keys)
-	if errors.Is(err, services.ErrAgentForbidden) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Agent is not authorized for the requested project, environment, or secret keys"})
+	if req.AccessRequestID == nil && (strings.TrimSpace(req.Purpose) == "" || strings.TrimSpace(req.SessionID) == "") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "purpose and session_id are required for a new access request"})
 		return
 	}
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	var accessRequest *models.AgentAccessRequest
+	if req.AccessRequestID == nil {
+		access, err := h.agents.AuthorizeResolve(c.Request.Context(), agent, req.Project, req.Environment, req.Keys)
+		if errors.Is(err, services.ErrAgentForbidden) {
+			if h.audit != nil {
+				meta, _ := json.Marshal(gin.H{"project": req.Project, "environment": req.Environment, "keys": req.Keys, "reason": "policy denied"})
+				_ = h.audit.LogAgent(c.Request.Context(), agent.ID, agent.OrgID, agent.ID, models.ActionAgentAccessDenied, "agent", c.ClientIP(), datatypes.JSON(meta))
+			}
+			c.JSON(http.StatusForbidden, gin.H{"error": "Agent is not authorized for the requested project, environment, or secret keys"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		accessRequest, err = h.agents.CreateAccessRequest(c.Request.Context(), agent, credential, access, req.Purpose, req.SessionID, c.ClientIP())
+		if err != nil {
+			respondInternalError(c, "Failed to persist access request and audit event", err)
+			return
+		}
+	} else {
+		var err error
+		accessRequest, err = h.agents.GetAccessRequest(c.Request.Context(), agent.ID, credential.ID, *req.AccessRequestID)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access request does not belong to this agent credential"})
+			return
+		}
+	}
+	if accessRequest.Status == models.AccessRequestPending {
+		c.JSON(http.StatusAccepted, gin.H{"status": accessRequest.Status, "access_request_id": accessRequest.ID, "expires_at": accessRequest.ExpiresAt, "message": "Human approval required"})
 		return
 	}
-	secrets, orgID, err := h.secrets.DecryptEnvironmentSecrets(c.Request.Context(), access.Environment, access.AllowedKeys, access.AllowAll)
+	if accessRequest.Status != models.AccessRequestApproved {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access request is not approved", "status": accessRequest.Status, "access_request_id": accessRequest.ID})
+		return
+	}
+	accessRequest, err := h.agents.BeginDelivery(c.Request.Context(), agent.ID, credential.ID, accessRequest.ID)
 	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Access approval expired, was revoked, or was already consumed"})
+		return
+	}
+	var approvedKeys []string
+	if err := json.Unmarshal(accessRequest.RequestedKeys, &approvedKeys); err != nil {
+		h.agents.FailDelivery(c.Request.Context(), accessRequest, "invalid approved key policy", c.ClientIP())
+		respondInternalError(c, "Invalid approved access policy", err)
+		return
+	}
+	allowedKeys := make(map[string]struct{}, len(approvedKeys))
+	for _, key := range approvedKeys {
+		allowedKeys[key] = struct{}{}
+	}
+	secrets, _, err := h.secrets.DecryptEnvironmentSecrets(c.Request.Context(), accessRequest.EnvironmentID, allowedKeys, accessRequest.AllowAllSecrets)
+	if err != nil {
+		h.agents.FailDelivery(c.Request.Context(), accessRequest, err.Error(), c.ClientIP())
 		respondInternalError(c, "Failed to resolve secrets", err)
 		return
 	}
-	leaseID := uuid.New()
-	expiresAt := time.Now().UTC().Add(5 * time.Minute)
-	if access.ExpiresAt != nil && access.ExpiresAt.Before(expiresAt) {
-		expiresAt = *access.ExpiresAt
-	}
-	metadataBytes, _ := json.Marshal(gin.H{
-		"credential_id": credential.ID,
-		"grant_ids":     access.GrantIDs,
-		"lease_id":      leaseID,
-		"secret_count":  len(secrets),
-		"purpose":       strings.TrimSpace(req.Purpose),
-		"session_id":    strings.TrimSpace(req.SessionID),
-	})
-	if h.audit != nil {
-		_ = h.audit.LogAgent(c.Request.Context(), agent.ID, orgID, access.Environment, models.ActionSecretRead, "environment", c.ClientIP(), datatypes.JSON(metadataBytes))
+	if err := h.agents.CompleteDelivery(c.Request.Context(), accessRequest, len(secrets), c.ClientIP()); err != nil {
+		h.agents.FailDelivery(c.Request.Context(), accessRequest, err.Error(), c.ClientIP())
+		respondInternalError(c, "Failed to commit the access audit; secrets were not released", err)
+		return
 	}
 	c.Header("Cache-Control", "no-store")
 	c.Header("Pragma", "no-cache")
 	c.JSON(http.StatusOK, gin.H{
-		"agent_id":       agent.ID,
-		"environment_id": access.Environment,
-		"lease_id":       leaseID,
-		"expires_at":     expiresAt,
-		"secrets":        secrets,
+		"agent_id":                 agent.ID,
+		"environment_id":           accessRequest.EnvironmentID,
+		"access_request_id":        accessRequest.ID,
+		"lease_id":                 accessRequest.ID,
+		"expires_at":               accessRequest.ExpiresAt,
+		"delivery_mode":            "static_secret_one_time",
+		"revocable_after_delivery": false,
+		"secrets":                  secrets,
 	})
+}
+
+func (h *AgentHandler) ListAccessRequests(c *gin.Context) {
+	orgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		return
+	}
+	requests, err := h.agents.ListAccessRequests(c.Request.Context(), orgID, strings.TrimSpace(c.Query("status")), 100)
+	if err != nil {
+		respondInternalError(c, "Failed to list access requests", err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, requests)
+}
+
+func (h *AgentHandler) DecideAccessRequest(c *gin.Context) {
+	orgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		return
+	}
+	requestID, err := uuid.Parse(c.Param("requestId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid access request ID"})
+		return
+	}
+	userID, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Decision string `json:"decision" binding:"required"`
+		Reason   string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || (req.Decision != "approve" && req.Decision != "deny" && req.Decision != "revoke") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "decision must be approve, deny, or revoke"})
+		return
+	}
+	if len(strings.TrimSpace(req.Reason)) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "decision reason cannot exceed 500 characters"})
+		return
+	}
+	var result *models.AgentAccessRequest
+	if req.Decision == "revoke" {
+		result, err = h.agents.RevokeAccessRequest(c.Request.Context(), userID, orgID, requestID, req.Reason, c.ClientIP())
+	} else {
+		result, err = h.agents.DecideAccessRequest(c.Request.Context(), userID, orgID, requestID, req.Decision == "approve", req.Reason, c.ClientIP())
+	}
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *AgentHandler) SetOrgAgentAccess(c *gin.Context) {
+	orgID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		return
+	}
+	userID, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Paused *bool `json:"paused" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Paused == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "paused is required"})
+		return
+	}
+	if err := h.agents.SetOrgAgentAccessPaused(c.Request.Context(), userID, orgID, *req.Paused, c.ClientIP()); err != nil {
+		respondInternalError(c, "Failed to update organization agent access", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"agent_access_paused": *req.Paused})
 }

@@ -18,11 +18,11 @@ const (
 // Organization represents a workspace (personal or team).
 // Personal workspaces are auto-created on signup and skip all team/invite UI.
 type Organization struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	OwnerID   uuid.UUID `gorm:"type:uuid;not null;index" json:"owner_id"`
-	Name      string    `gorm:"type:varchar(255);not null" json:"name"`
-	OwnerType OwnerType `gorm:"type:varchar(20);not null;default:'org'" json:"owner_type"`
-	AgentAccessPaused bool `gorm:"not null;default:false" json:"agent_access_paused"`
+	ID                uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	OwnerID           uuid.UUID `gorm:"type:uuid;not null;index" json:"owner_id"`
+	Name              string    `gorm:"type:varchar(255);not null" json:"name"`
+	OwnerType         OwnerType `gorm:"type:varchar(20);not null;default:'org'" json:"owner_type"`
+	AgentAccessPaused bool      `gorm:"not null;default:false" json:"agent_access_paused"`
 
 	// Timestamps
 	CreatedAt time.Time      `json:"created_at"`
@@ -60,10 +60,10 @@ type OrgMember struct {
 	OrgID  uuid.UUID `gorm:"type:uuid;not null;index" json:"org_id"`
 	UserID uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
 	RoleID uuid.UUID `gorm:"type:uuid;not null;index" json:"role_id"`
-	
+
 	// Timestamps
 	CreatedAt time.Time `json:"created_at"`
-	
+
 	// Relationships
 	Organization Organization `gorm:"foreignKey:OrgID" json:"organization,omitempty"`
 	User         User         `gorm:"foreignKey:UserID" json:"user,omitempty"`

@@ -263,15 +263,18 @@ func main() {
 
 			// Organization-owned non-human identities. Agent credentials are
 			// created here by humans, but cannot authenticate to these routes.
-			protected.GET("/orgs/:id/agents", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.List)
+			protected.GET("/orgs/:id/agents", middleware.RequireAnyOrgPermission("id", models.PermissionAgentsManage, models.PermissionAgentGrantsManage, models.PermissionAgentApprovalsManage), agentHandler.List)
 			protected.POST("/orgs/:id/agents", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.Create)
 			protected.PATCH("/orgs/:id/agents/:agentId", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.Update)
-			protected.GET("/orgs/:id/agents/:agentId/credentials", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.ListCredentials)
+			protected.GET("/orgs/:id/agents/:agentId/credentials", middleware.RequireAnyOrgPermission("id", models.PermissionAgentsManage, models.PermissionAgentGrantsManage, models.PermissionAgentApprovalsManage), agentHandler.ListCredentials)
 			protected.POST("/orgs/:id/agents/:agentId/credentials", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.CreateCredential)
 			protected.DELETE("/orgs/:id/agents/:agentId/credentials/:credentialId", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.RevokeCredential)
-			protected.GET("/orgs/:id/agents/:agentId/grants", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.ListGrants)
-			protected.POST("/orgs/:id/agents/:agentId/grants", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.CreateGrant)
-			protected.DELETE("/orgs/:id/agents/:agentId/grants/:grantId", middleware.RequireOrgPermission("id", models.PermissionAgentsManage), agentHandler.RevokeGrant)
+			protected.GET("/orgs/:id/agents/:agentId/grants", middleware.RequireAnyOrgPermission("id", models.PermissionAgentGrantsManage, models.PermissionAgentApprovalsManage), agentHandler.ListGrants)
+			protected.POST("/orgs/:id/agents/:agentId/grants", middleware.RequireOrgPermission("id", models.PermissionAgentGrantsManage), agentHandler.CreateGrant)
+			protected.DELETE("/orgs/:id/agents/:agentId/grants/:grantId", middleware.RequireOrgPermission("id", models.PermissionAgentGrantsManage), agentHandler.RevokeGrant)
+			protected.GET("/orgs/:id/agent-access-requests", middleware.RequireOrgPermission("id", models.PermissionAgentApprovalsManage), agentHandler.ListAccessRequests)
+			protected.POST("/orgs/:id/agent-access-requests/:requestId/decision", middleware.RequireOrgPermission("id", models.PermissionAgentApprovalsManage), agentHandler.DecideAccessRequest)
+			protected.PATCH("/orgs/:id/agent-access", middleware.RequireOrgPermission("id", models.PermissionOrgManage), agentHandler.SetOrgAgentAccess)
 
 			// Projects (use :id for org to match GET /orgs/:id)
 			protected.GET("/orgs/:id/projects", projectHandler.ListOrgProjects)
